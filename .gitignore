@@ -160,3 +160,12 @@ cython_debug/
 
 .idea/
 .vscode/
+
+# oidcauth plugin - source only
+plugins.v2/oidcauth/src/
+plugins.v2/oidcauth/package.json
+plugins.v2/oidcauth/package-lock.json
+plugins.v2/oidcauth/vite.config.js
+plugins.v2/oidcauth/node_modules/
+plugins.v2/oidcauth/index.dev.html
+plugins.v2/oidcauth/dist/
