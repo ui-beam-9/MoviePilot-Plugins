@@ -12,10 +12,10 @@ MoviePilot官方插件市场：https://github.com/jxxghp/MoviePilot-Plugins
 
 源自 [MoviePilot PR #5882](https://github.com/jxxghp/MoviePilot/pull/5882)，后经仓库维护者建议以插件形式实现。
 
-- **版本**: 0.3.0
+- **版本**: 0.3.2
 - **作者**: ui-beam-9, jxxghp
 - **标签**: 认证, OIDC, SSO
-- **图标**: Oidcauth_A.png
+- **图标**: [Oidcauth_A.png](https://raw.githubusercontent.com/jxxghp/MoviePilot-Plugins/main/icons/Oidcauth_A.png)
 
 支持的 OIDC Provider 包括 Authelia、Keycloak、Casdoor 等兼容标准 OIDC 协议的服务。
 
@@ -33,6 +33,8 @@ MoviePilot官方插件市场：https://github.com/jxxghp/MoviePilot-Plugins
 
 | 版本 | 说明 |
 |------|------|
+| v0.3.2 | 插件配置增加注释；回调地址支持一键复制和选择复制，修复非HTTPS环境下复制失败；plugin_icon 改为指向官方插件库图标文件 |
+| v0.3.1 | 修复回调事件类型不匹配导致前端错误提示不准确；移除解绑方法多余检查，允许 OIDC 关闭状态下正常解绑 |
 | v0.3.0 | 重构双栏布局与动态背景，支持深浅主题自适应；新增绑定可视化、详情卡片及解绑确认；升级通信机制，新增特性介绍与底部信息栏，统一图标风格 |
 | v0.2.0 | AuthPage 自动跳转 OIDC 授权，新增加载动画与错误重试；修复弹窗拦截提示及 PROXY_HOST 空值崩溃，补充配置表单指南 |
 | v0.1.0 | 新增插件化 OIDC 登录、账号绑定、Provider 配置与联邦认证界面 |

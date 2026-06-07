@@ -24,16 +24,23 @@ class OidcAuth(_PluginBase):
     OIDC 认证插件。
     """
 
+    # 插件在界面中的展示名称
     plugin_name = "OIDC 认证"
+    # 插件描述
     plugin_desc = (
         "通过 OpenID Connect Provider 为 MoviePilot 提供插件化登录与账号绑定。"
     )
-    plugin_icon = "Oidcauth_A.png"
-    plugin_version = "0.3.1"
+    # 插件图标
+    plugin_icon = "https://raw.githubusercontent.com/jxxghp/MoviePilot-Plugins/main/icons/Oidcauth_A.png"
+    # 插件版本，必须和 package.v2.json 中保持一致
+    plugin_version = "0.3.2"
+    # 作者信息
     plugin_author = "ui-beam-9,jxxghp"
     author_url = "https://github.com/ui-beam-9"
+    # 插件标签
     plugin_label = "认证,OIDC,SSO"
-    plugin_order = 36
+    # 插件加载顺序，数值越小越早
+    plugin_order = 1
 
     _STATE_TTL_SECONDS = 300
     _PLUGIN_ID = "OidcAuth"
@@ -268,7 +275,9 @@ class OidcAuth(_PluginBase):
                 False, "oidc_invalid_state", "OIDC state 无效或已过期"
             )
         action = state_data.get("action")
-        event_type = "oidcauth_bind_callback" if action == "bind" else "oidcauth_callback"
+        event_type = (
+            "oidcauth_bind_callback" if action == "bind" else "oidcauth_callback"
+        )
         try:
             redirect_uri = self._callback_url(request)
             token_data = await self._exchange_code(code=code, redirect_uri=redirect_uri)
@@ -285,7 +294,9 @@ class OidcAuth(_PluginBase):
             return self._handle_login_callback(userinfo=userinfo, sub=sub)
         except Exception as err:
             logger.error(f"OIDC 回调处理失败: {err}", exc_info=True)
-            return self._callback_html(False, "oidc_error", str(err), event_type=event_type)
+            return self._callback_html(
+                False, "oidc_error", str(err), event_type=event_type
+            )
 
     def status(
         self, current_user: User = Depends(get_current_active_user)
