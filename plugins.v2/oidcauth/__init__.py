@@ -33,7 +33,7 @@ class OidcAuth(_PluginBase):
     # 插件图标
     plugin_icon = "https://raw.githubusercontent.com/jxxghp/MoviePilot-Plugins/main/icons/Oidcauth_A.png"
     # 插件版本，必须和 package.v2.json 中保持一致
-    plugin_version = "0.3.2"
+    plugin_version = "0.3.3"
     # 作者信息
     plugin_author = "ui-beam-9,jxxghp"
     author_url = "https://github.com/ui-beam-9"
@@ -275,9 +275,7 @@ class OidcAuth(_PluginBase):
                 False, "oidc_invalid_state", "OIDC state 无效或已过期"
             )
         action = state_data.get("action")
-        event_type = (
-            "oidcauth_bind_callback" if action == "bind" else "oidcauth_callback"
-        )
+        event_type = "oidcauth_bind_callback" if action == "bind" else "oidcauth_callback"
         try:
             redirect_uri = self._callback_url(request)
             token_data = await self._exchange_code(code=code, redirect_uri=redirect_uri)
@@ -294,9 +292,7 @@ class OidcAuth(_PluginBase):
             return self._handle_login_callback(userinfo=userinfo, sub=sub)
         except Exception as err:
             logger.error(f"OIDC 回调处理失败: {err}", exc_info=True)
-            return self._callback_html(
-                False, "oidc_error", str(err), event_type=event_type
-            )
+            return self._callback_html(False, "oidc_error", str(err), event_type=event_type)
 
     def status(
         self, current_user: User = Depends(get_current_active_user)
@@ -428,19 +424,19 @@ class OidcAuth(_PluginBase):
         :return: 规范化后的配置
         """
         return {
-            "enabled": bool(config.get("enabled")),
-            "provider_name": str(config.get("provider_name") or "OIDC 登录"),
-            "issuer": str(config.get("issuer") or "").strip().rstrip("/"),
-            "client_id": str(config.get("client_id") or "").strip(),
-            "client_secret": str(config.get("client_secret") or ""),
-            "scopes": str(config.get("scopes") or "openid profile email").strip(),
-            "redirect_uri": str(config.get("redirect_uri") or "").strip(),
+            "enabled": bool(config.get("enabled")),  # 是否启用 OIDC 登录
+            "provider_name": str(config.get("provider_name") or "OIDC 登录"),  # 登录入口名称
+            "issuer": str(config.get("issuer") or "").strip().rstrip("/"),  # OIDC 签发者 URL
+            "client_id": str(config.get("client_id") or "").strip(),  # 客户端 ID
+            "client_secret": str(config.get("client_secret") or ""),  # 客户端密钥
+            "scopes": str(config.get("scopes") or "openid profile email").strip(),  # 请求的 scopes
+            "redirect_uri": str(config.get("redirect_uri") or "").strip(),  # 回调地址覆盖（选填）
             "username_claim": str(
-                config.get("username_claim") or "preferred_username"
+                config.get("username_claim") or "preferred_username"  # 用户名 claim
             ).strip(),
-            "email_claim": str(config.get("email_claim") or "email").strip(),
+            "email_claim": str(config.get("email_claim") or "email").strip(),  # 邮箱 claim
             "allow_auto_bind_by_username": bool(
-                config.get("allow_auto_bind_by_username")
+                config.get("allow_auto_bind_by_username")  # 允许按用户名自动绑定
             ),
         }
 
