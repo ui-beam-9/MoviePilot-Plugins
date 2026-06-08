@@ -1,0 +1,12 @@
+
+.oidc-callback-uri[data-v-ea9ee126] {
+  background: rgba(var(--v-theme-info), 0.1);
+  color: rgb(var(--v-theme-info));
+  padding: 2px 8px;
+  border-radius: 4px;
+  font-family: 'JetBrains Mono', 'Fira Code', Consolas, monospace;
+  font-size: 0.85rem;
+  cursor: text;
+  user-select: all;
+  word-break: break-all;
+}

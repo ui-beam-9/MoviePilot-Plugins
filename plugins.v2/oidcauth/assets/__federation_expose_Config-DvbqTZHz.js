@@ -1,6 +1,7 @@
 import { importShared } from './__federation_fn_import-JrT3xvdd.js';
+import { _ as _export_sfc } from './_plugin-vue_export-helper-pcqpp-6-.js';
 
-const {createTextVNode:_createTextVNode,resolveComponent:_resolveComponent,withCtx:_withCtx,createVNode:_createVNode,createElementVNode:_createElementVNode,toDisplayString:_toDisplayString,openBlock:_openBlock,createBlock:_createBlock,createCommentVNode:_createCommentVNode,createElementBlock:_createElementBlock,Fragment:_Fragment} = await importShared('vue');
+const {createTextVNode:_createTextVNode,resolveComponent:_resolveComponent,withCtx:_withCtx,createVNode:_createVNode,createElementVNode:_createElementVNode,toDisplayString:_toDisplayString,openBlock:_openBlock,createElementBlock:_createElementBlock,createCommentVNode:_createCommentVNode,Fragment:_Fragment,createBlock:_createBlock} = await importShared('vue');
 
 
 const _hoisted_1 = { class: "oidc-auth-config pa-4" };
@@ -9,10 +10,14 @@ const _hoisted_3 = { class: "d-flex align-center gap-2 mb-3" };
 const _hoisted_4 = { class: "d-flex gap-3 mb-2" };
 const _hoisted_5 = { class: "text-body-2" };
 const _hoisted_6 = {
+  key: 0,
+  class: "oidc-callback-uri ml-1"
+};
+const _hoisted_7 = {
   key: 1,
   class: "text-medium-emphasis"
 };
-const _hoisted_7 = { class: "d-flex flex-wrap gap-3 mt-4" };
+const _hoisted_8 = { class: "d-flex flex-wrap gap-3 mt-4" };
 
 const {computed,onMounted,onUnmounted,ref} = await importShared('vue');
 
@@ -51,8 +56,7 @@ const config = ref({
   allow_auto_bind_by_username: false,
 });
 
-const copied = ref(false);
-let copyTimer = null;
+
 
 const pluginBase = computed(() => `plugin/${props.pluginId || 'OidcAuth'}`);
 
@@ -63,30 +67,7 @@ const displayRedirectUri = computed(() => {
   return `${window.location.origin}${raw}`
 });
 
-async function copyRedirectUri() {
-  try {
-    // 优先使用 Clipboard API
-    await navigator.clipboard.writeText(displayRedirectUri.value);
-    copied.value = true;
-    clearTimeout(copyTimer);
-    copyTimer = setTimeout(() => { copied.value = false; }, 2000);
-  } catch {
-    // 非 HTTPS 或权限受限时，回退到 execCommand
-    try {
-      const textarea = document.createElement('textarea');
-      textarea.value = displayRedirectUri.value;
-      textarea.style.position = 'fixed';
-      textarea.style.opacity = '0';
-      document.body.appendChild(textarea);
-      textarea.select();
-      document.execCommand('copy');
-      document.body.removeChild(textarea);
-      copied.value = true;
-      clearTimeout(copyTimer);
-      copyTimer = setTimeout(() => { copied.value = false; }, 2000);
-    } catch { /* 忽略 */ }
-  }
-}
+
 
 function unwrap(response) {
   if (response && Object.prototype.hasOwnProperty.call(response, 'data')) {
@@ -155,7 +136,6 @@ async function testConnection() {
 onMounted(loadStatus);
 
 onUnmounted(() => {
-  clearTimeout(copyTimer);
 });
 
 return (_ctx, _cache) => {
@@ -166,7 +146,6 @@ return (_ctx, _cache) => {
   const _component_VCol = _resolveComponent("VCol");
   const _component_VRow = _resolveComponent("VRow");
   const _component_VIcon = _resolveComponent("VIcon");
-  const _component_VChip = _resolveComponent("VChip");
   const _component_VBtn = _resolveComponent("VBtn");
   const _component_VAlert = _resolveComponent("VAlert");
   const _component_VCardText = _resolveComponent("VCardText");
@@ -339,7 +318,7 @@ return (_ctx, _cache) => {
                       }),
                       _cache[12] || (_cache[12] = _createElementVNode("span", { class: "text-subtitle-2 font-weight-medium" }, "使用指南", -1))
                     ]),
-                    _cache[17] || (_cache[17] = _createElementVNode("div", { class: "d-flex gap-3 mb-2" }, [
+                    _cache[15] || (_cache[15] = _createElementVNode("div", { class: "d-flex gap-3 mb-2" }, [
                       _createElementVNode("div", {
                         class: "text-medium-emphasis",
                         style: {"min-width":"16px"}
@@ -347,52 +326,18 @@ return (_ctx, _cache) => {
                       _createElementVNode("div", { class: "text-body-2" }, "在您的 OIDC 提供商（如 Keycloak、Authentik、Okta 等）中创建一个客户端，协议类型选择 \"OAuth2/OpenID Provider\"，授权流程使用 \"Authorize Application\"。")
                     ], -1)),
                     _createElementVNode("div", _hoisted_4, [
-                      _cache[16] || (_cache[16] = _createElementVNode("div", {
+                      _cache[14] || (_cache[14] = _createElementVNode("div", {
                         class: "text-medium-emphasis",
                         style: {"min-width":"16px"}
                       }, "2.", -1)),
                       _createElementVNode("div", _hoisted_5, [
-                        _cache[15] || (_cache[15] = _createTextVNode(" 将回调地址设置为： ", -1)),
+                        _cache[13] || (_cache[13] = _createTextVNode(" 将回调地址设置为： ", -1)),
                         (displayRedirectUri.value)
-                          ? (_openBlock(), _createBlock(_component_VChip, {
-                              key: 0,
-                              color: "info",
-                              variant: "tonal",
-                              size: "small",
-                              class: "cursor-pointer ml-1 user-select-text",
-                              onClick: copyRedirectUri
-                            }, {
-                              append: _withCtx(() => [
-                                (copied.value)
-                                  ? (_openBlock(), _createBlock(_component_VIcon, {
-                                      key: 0,
-                                      size: "14",
-                                      color: "success"
-                                    }, {
-                                      default: _withCtx(() => [...(_cache[13] || (_cache[13] = [
-                                        _createTextVNode("mdi-check", -1)
-                                      ]))]),
-                                      _: 1
-                                    }))
-                                  : (_openBlock(), _createBlock(_component_VIcon, {
-                                      key: 1,
-                                      size: "14"
-                                    }, {
-                                      default: _withCtx(() => [...(_cache[14] || (_cache[14] = [
-                                        _createTextVNode("mdi-content-copy", -1)
-                                      ]))]),
-                                      _: 1
-                                    }))
-                              ]),
-                              default: _withCtx(() => [
-                                _createTextVNode(_toDisplayString(displayRedirectUri.value) + " ", 1)
-                              ]),
-                              _: 1
-                            }))
-                          : (_openBlock(), _createElementBlock("span", _hoisted_6, "加载中..."))
+                          ? (_openBlock(), _createElementBlock("code", _hoisted_6, _toDisplayString(displayRedirectUri.value), 1))
+                          : (_openBlock(), _createElementBlock("span", _hoisted_7, "加载中..."))
                       ])
                     ]),
-                    _cache[18] || (_cache[18] = _createElementVNode("div", { class: "d-flex gap-3 mb-2" }, [
+                    _cache[16] || (_cache[16] = _createElementVNode("div", { class: "d-flex gap-3 mb-2" }, [
                       _createElementVNode("div", {
                         class: "text-medium-emphasis",
                         style: {"min-width":"16px"}
@@ -406,14 +351,14 @@ return (_ctx, _cache) => {
                         ])
                       ])
                     ], -1)),
-                    _cache[19] || (_cache[19] = _createElementVNode("div", { class: "d-flex gap-3 mb-2" }, [
+                    _cache[17] || (_cache[17] = _createElementVNode("div", { class: "d-flex gap-3 mb-2" }, [
                       _createElementVNode("div", {
                         class: "text-medium-emphasis",
                         style: {"min-width":"16px"}
                       }, "4."),
                       _createElementVNode("div", { class: "text-body-2" }, "保存后登录页面将显示 OIDC 登录按钮。")
                     ], -1)),
-                    _cache[20] || (_cache[20] = _createElementVNode("div", { class: "d-flex gap-3" }, [
+                    _cache[18] || (_cache[18] = _createElementVNode("div", { class: "d-flex gap-3" }, [
                       _createElementVNode("div", {
                         class: "text-medium-emphasis",
                         style: {"min-width":"16px"}
@@ -423,14 +368,14 @@ return (_ctx, _cache) => {
                   ])
                 ], 64))
               : _createCommentVNode("", true),
-            _createElementVNode("div", _hoisted_7, [
+            _createElementVNode("div", _hoisted_8, [
               _createVNode(_component_VBtn, {
                 color: "primary",
                 "prepend-icon": "mdi-content-save",
                 loading: saving.value,
                 onClick: saveConfig
               }, {
-                default: _withCtx(() => [...(_cache[21] || (_cache[21] = [
+                default: _withCtx(() => [...(_cache[19] || (_cache[19] = [
                   _createTextVNode("保存", -1)
                 ]))]),
                 _: 1
@@ -444,7 +389,7 @@ return (_ctx, _cache) => {
                     loading: testing.value,
                     onClick: testConnection
                   }, {
-                    default: _withCtx(() => [...(_cache[22] || (_cache[22] = [
+                    default: _withCtx(() => [...(_cache[20] || (_cache[20] = [
                       _createTextVNode("测试连接", -1)
                     ]))]),
                     _: 1
@@ -488,5 +433,6 @@ return (_ctx, _cache) => {
 }
 
 };
+const ConfigPage = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-ea9ee126"]]);
 
-export { _sfc_main as default };
+export { ConfigPage as default };

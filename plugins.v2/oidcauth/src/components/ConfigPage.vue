@@ -28,8 +28,7 @@ const config = ref({
   allow_auto_bind_by_username: false,
 })
 
-const copied = ref(false)
-let copyTimer = null
+
 
 const pluginBase = computed(() => `plugin/${props.pluginId || 'OidcAuth'}`)
 
@@ -40,30 +39,7 @@ const displayRedirectUri = computed(() => {
   return `${window.location.origin}${raw}`
 })
 
-async function copyRedirectUri() {
-  try {
-    // 优先使用 Clipboard API
-    await navigator.clipboard.writeText(displayRedirectUri.value)
-    copied.value = true
-    clearTimeout(copyTimer)
-    copyTimer = setTimeout(() => { copied.value = false }, 2000)
-  } catch {
-    // 非 HTTPS 或权限受限时，回退到 execCommand
-    try {
-      const textarea = document.createElement('textarea')
-      textarea.value = displayRedirectUri.value
-      textarea.style.position = 'fixed'
-      textarea.style.opacity = '0'
-      document.body.appendChild(textarea)
-      textarea.select()
-      document.execCommand('copy')
-      document.body.removeChild(textarea)
-      copied.value = true
-      clearTimeout(copyTimer)
-      copyTimer = setTimeout(() => { copied.value = false }, 2000)
-    } catch { /* 忽略 */ }
-  }
-}
+
 
 function unwrap(response) {
   if (response && Object.prototype.hasOwnProperty.call(response, 'data')) {
@@ -132,7 +108,6 @@ async function testConnection() {
 onMounted(loadStatus)
 
 onUnmounted(() => {
-  clearTimeout(copyTimer)
 })
 </script>
 
@@ -189,13 +164,7 @@ onUnmounted(() => {
               <div class="text-medium-emphasis" style="min-width: 16px">2.</div>
               <div class="text-body-2">
                 将回调地址设置为：
-                <VChip v-if="displayRedirectUri" color="info" variant="tonal" size="small" class="cursor-pointer ml-1 user-select-text" @click="copyRedirectUri">
-                  {{ displayRedirectUri }}
-                  <template #append>
-                    <VIcon v-if="copied" size="14" color="success">mdi-check</VIcon>
-                    <VIcon v-else size="14">mdi-content-copy</VIcon>
-                  </template>
-                </VChip>
+                <code v-if="displayRedirectUri" class="oidc-callback-uri ml-1">{{ displayRedirectUri }}</code>
                 <span v-else class="text-medium-emphasis">加载中...</span>
               </div>
             </div>
@@ -230,3 +199,17 @@ onUnmounted(() => {
     </VCard>
   </div>
 </template>
+
+<style scoped>
+.oidc-callback-uri {
+  background: rgba(var(--v-theme-info), 0.1);
+  color: rgb(var(--v-theme-info));
+  padding: 2px 8px;
+  border-radius: 4px;
+  font-family: 'JetBrains Mono', 'Fira Code', Consolas, monospace;
+  font-size: 0.85rem;
+  cursor: text;
+  user-select: all;
+  word-break: break-all;
+}
+</style>
