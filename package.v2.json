@@ -17,5 +17,19 @@
       "v0.3.2": "插件配置属性增加中文注释与官方图标引用，插件加载顺序调整；ConfigPage 回调地址复制增强，兼容非 HTTPS 环境。",
       "v0.3.3": "从编译产物反推恢复 v0.3.0 网页源码，修复源码丢失导致的 UI 回退问题，恢复完整重构页面与网页源码上传。"
     }
+  },
+  "LarkMessager": {
+    "name": "飞书消息",
+    "description": "基于飞书应用的通知与消息交互插件，支持文本、卡片、图片、文件发送及消息回调交互，不依赖内置飞书模块。",
+    "labels": "通知,飞书,Lark,交互",
+    "version": "1.0.0",
+    "icon": "https://raw.githubusercontent.com/jxxghp/MoviePilot-Plugins/main/icons/FeiShu_A.png",
+    "author": "yui_d",
+    "level": 1,
+    "system_version": ">=2.12.0",
+    "release": false,
+    "history": {
+      "v1.0.0": "初始版本：支持飞书应用消息发送（文本/卡片/图片/文件）、事件订阅 Webhook、交互式卡片按钮、NoticeMessage 通知转发、远程命令 /lark_test。"
+    }
   }
 }
