@@ -1,6 +1,6 @@
 """
-LarkMessager 飞书 API 客户端
-飞书开放平台 API 文档：https://open.larksuite.com/document/server-docs
+LarkMessager Lark API 客户端
+Lark开放平台 API 文档：https://open.larksuite.com/document/server-docs
 """
 import time
 import json
@@ -15,12 +15,12 @@ from .schemas import LarkInteractiveCard, LarkCardHeader, LarkCardElement
 
 logger = logging.getLogger(__name__)
 
-# 飞书开放平台 API 地址
+# Lark开放平台 API 地址
 API_BASE = "https://open.larksuite.com/open-apis"
 
 
 class LarkClient:
-    """飞书应用 API 客户端"""
+    """Lark应用 API 客户端"""
 
     def __init__(self, app_id: str, app_secret: str):
         self._app_id = app_id
@@ -48,7 +48,7 @@ class LarkClient:
             raise RuntimeError(f"获取 tenant_access_token 失败：{data.get('msg')}")
         self._token = data["tenant_access_token"]
         self._token_expire = now + data.get("expire", 7200)
-        logger.info("飞书 tenant_access_token 已刷新，过期时间：%s", self._token_expire)
+        logger.info("Lark tenant_access_token 已刷新，过期时间：%s", self._token_expire)
         return self._token
 
     def _headers(self, content_type: str = "application/json") -> Dict[str, str]:
@@ -267,7 +267,7 @@ class LarkClient:
         上传文件，返回 file_key
         :param file_path: 本地文件路径
         :param file_name: 文件名（不填则取路径中的文件名）
-        :param file_type: 文件类型，参考飞书文档
+        :param file_type: 文件类型，参考Lark文档
         :return: file_key
         """
         url = f"{API_BASE}/im/v1/files"
@@ -284,7 +284,7 @@ class LarkClient:
 
     def download_image(self, image_key: str) -> bytes:
         """
-        下载飞书图片，返回图片二进制数据
+        下载Lark图片，返回图片二进制数据
         :param image_key: 图片的 image_key
         :return: 图片 bytes
         """
@@ -299,7 +299,7 @@ class LarkClient:
 
     def download_image_to_data_url(self, image_key: str) -> str:
         """
-        下载飞书图片并转为 data URL（用于 AI 智能体识别图片）
+        下载Lark图片并转为 data URL（用于 AI 智能体识别图片）
         :param image_key: 图片的 image_key
         :return: data URL 字符串，如 "data:image/png;base64,xxxx"
         """
@@ -314,7 +314,7 @@ class LarkClient:
 
     def download_file_bytes(self, file_key: str) -> bytes:
         """
-        下载飞书文件，返回文件二进制数据
+        下载Lark文件，返回文件二进制数据
         :param file_key: 文件的 file_key
         :return: 文件 bytes
         """

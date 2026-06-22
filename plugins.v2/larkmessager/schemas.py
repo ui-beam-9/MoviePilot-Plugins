@@ -6,14 +6,14 @@ from typing import Optional, List, Dict, Any
 
 
 class LarkMessage(BaseModel):
-    """飞书消息基础模型"""
+    """Lark消息基础模型"""
     msg_type: str = Field(..., description="消息类型：text / interactive / image / file")
     content: Dict[str, Any] = Field(default_factory=dict, description="消息内容")
     receive_id: str = Field("", description="接收者 ID（chat_id / open_id / user_id）")
 
 
 class LarkCardElement(BaseModel):
-    """飞书卡片元素"""
+    """Lark卡片元素"""
     tag: str = Field(..., description="元素标签：div / img / action / hr / markdown 等")
     text: Optional[Dict[str, str]] = Field(None, description="文本内容，如 {'tag': 'plain_text', 'content': '...'}")
     content: Optional[str] = Field(None, description="markdown 内容")
@@ -24,14 +24,14 @@ class LarkCardElement(BaseModel):
 
 
 class LarkCardHeader(BaseModel):
-    """飞书卡片头部"""
+    """Lark卡片头部"""
     title: Dict[str, str] = Field(..., description="标题，如 {'tag': 'plain_text', 'content': '...'}")
     subtitle: Optional[Dict[str, str]] = Field(None, description="副标题")
     template: Optional[str] = Field(None, description="卡片颜色模板：blue / green / orange / red / purple / indigo")
 
 
 class LarkInteractiveCard(BaseModel):
-    """飞书交互式卡片"""
+    """Lark交互式卡片"""
     config: Dict[str, bool] = Field(default_factory=lambda: {"wide_screen_mode": True}, description="卡片配置")
     header: Optional[LarkCardHeader] = Field(None, description="卡片头部")
     elements: List[Dict[str, Any]] = Field(default_factory=list, description="卡片元素列表")
@@ -39,7 +39,7 @@ class LarkInteractiveCard(BaseModel):
 
 
 class LarkWebhookEvent(BaseModel):
-    """飞书 Webhook 回调事件"""
+    """Lark Webhook 回调事件"""
     schema: Optional[str] = Field(None, alias="schema")
     header: Optional[Dict[str, Any]] = Field(None, description="事件头")
     event: Optional[Dict[str, Any]] = Field(None, description="事件体")
@@ -65,7 +65,7 @@ class LarkWebhookEvent(BaseModel):
 
 
 class LarkUserMessage(BaseModel):
-    """飞书用户消息"""
+    """Lark用户消息"""
     message_id: str = Field("", description="消息 ID")
     chat_id: str = Field("", description="会话 ID")
     chat_type: str = Field("", description="会话类型：p2p / group")
@@ -78,7 +78,7 @@ class LarkUserMessage(BaseModel):
 
 
 class LarkButtonAction(BaseModel):
-    """飞书卡片按钮回调"""
+    """Lark卡片按钮回调"""
     action_id: str = Field("", description="按钮 action_id")
     action_value: str = Field("", description="按钮携带的 value")
     tag: str = Field("", description="按钮 tag")

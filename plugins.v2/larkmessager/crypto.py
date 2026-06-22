@@ -1,7 +1,8 @@
 """
 LarkMessager 消息加解密
-飞书/Lark 事件回调加密采用 AES-256-CBC PKCS7 填充
+Lark 事件回调加密采用 AES-256-CBC PKCS7 填充
 """
+
 import base64
 import hashlib
 from Crypto.Cipher import AES
@@ -9,13 +10,13 @@ from Crypto.Cipher import AES
 
 class LarkCrypto:
     """
-    飞书事件订阅加解密
+    Lark事件订阅加解密
     文档：https://open.larksuite.com/document/server-events/event-subscription-configuration-guide/event-encryption-configuration-guide
     """
 
     def __init__(self, encrypt_key: str):
         """
-        :param encrypt_key: 飞书应用后台配置的 Encrypt Key（43位）
+        :param encrypt_key: Lark应用后台配置的 Encrypt Key（43位）
         """
         self._encrypt_key = encrypt_key
         # AES-256-CBC：key 取 SHA-256(encrypt_key) 的前 32 字节
@@ -26,7 +27,7 @@ class LarkCrypto:
 
     def decrypt(self, encrypted_data: str) -> str:
         """
-        解密飞书回调数据
+        解密Lark回调数据
         :param encrypted_data: Base64 编码的加密字符串
         :return: 解密后的 JSON 明文
         """

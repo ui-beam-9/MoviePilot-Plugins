@@ -1,8 +1,9 @@
 """
-LarkMessager — 飞书（Lark）应用通知与消息交互插件
+LarkMessager — 国际版飞书 Lark 应用通知与消息交互插件
 MoviePilot V2 插件
 作者：yui_d
 """
+
 import json
 import logging
 import time
@@ -21,12 +22,14 @@ from .client import LarkClient
 from .crypto import LarkCrypto
 from .schemas import LarkWebhookEvent, LarkUserMessage, LarkButtonAction
 
+
 # ------------------------------------------------------------------ #
 #  动态注册 MessageChannel.Lark（主仓库尚未合入，不改主仓库）
 # ------------------------------------------------------------------ #
 def _ensure_lark_channel() -> None:
     """在 MessageChannel 枚举中注册 Lark，幂等可重入。"""
     from app.schemas import MessageChannel
+
     if "Lark" in MessageChannel.__members__:
         return
     # 动态给枚举加成员（兼容 Python 3.12+）
@@ -37,18 +40,18 @@ def _ensure_lark_channel() -> None:
     MessageChannel._value2member_map_["Lark"] = new_member
     MessageChannel.__members__["Lark"] = new_member
 
+
 _ensure_lark_channel()
 
 
 logger = logging.getLogger(__name__)
 
 # 插件图标（放在 icons/ 目录，package.v2.json 引用）
-PLUGIN_ICON = "lark.png"
 
 
 class LarkMessager(_PluginBase):
     """
-    飞书应用通知与消息交互插件
+    Lark 开放平台应用通知与消息交互插件
     功能对标内置 WechatModule，支持：
     - 文本 / 卡片 / 图片 / 文件消息发送
     - 事件订阅 Webhook 接收（消息、按钮回调）
@@ -57,12 +60,12 @@ class LarkMessager(_PluginBase):
     """
 
     # —— 插件元数据 —— #
-    plugin_name = "飞书消息"
-    plugin_desc = "基于飞书应用的通知与消息交互插件，支持文本、卡片、图片、文件发送及消息回调交互。"
-    plugin_icon = PLUGIN_ICON
-    plugin_version = "1.0.0"
-    plugin_author = "yui_d"
-    author_url = "https://github.com"
+    plugin_name = "Lark 消息"
+    plugin_desc = "基于国际版飞书 Lark 开放平台应用的通知与消息交互插件，支持文本、卡片、图片、文件发送及消息回调交互。"
+    plugin_icon = "https://raw.githubusercontent.com/jxxghp/MoviePilot-Plugins/main/icons/FeiShu_A.png"
+    plugin_version = "0.1.0"
+    plugin_author = "ui-beam-9"
+    author_url = "https://github.com/ui-beam-9"
     plugin_config_prefix = "larkmessager_"
     plugin_order = 50
     auth_level = 1
@@ -71,10 +74,10 @@ class LarkMessager(_PluginBase):
     _enabled: bool = False
     _app_id: str = ""
     _app_secret: str = ""
-    _webhook_token: str = ""   # 用于验证回调来源
-    _encrypt_key: str = ""      # 消息加解密密钥（可选）
-    _admin_users: List[str] = [] # 管理员 open_id 列表
-    _chat_id: str = ""          # 默认推送目标聊天 ID
+    _webhook_token: str = ""  # 用于验证回调来源
+    _encrypt_key: str = ""  # 消息加解密密钥（可选）
+    _admin_users: List[str] = []  # 管理员 open_id 列表
+    _chat_id: str = ""  # 默认推送目标聊天 ID
 
     # —— 内部客户端 —— #
     _client: Optional[LarkClient] = None
@@ -92,7 +95,9 @@ class LarkMessager(_PluginBase):
         self._app_secret = (config.get("app_secret") or "").strip()
         self._webhook_token = (config.get("webhook_token") or "").strip()
         self._encrypt_key = (config.get("encrypt_key") or "").strip()
-        self._admin_users = [u.strip() for u in (config.get("admin_users") or "").split(",") if u.strip()]
+        self._admin_users = [
+            u.strip() for u in (config.get("admin_users") or "").split(",") if u.strip()
+        ]
         self._chat_id = (config.get("chat_id") or "").strip()
 
         if self._enabled and self._app_id and self._app_secret:
@@ -125,8 +130,8 @@ class LarkMessager(_PluginBase):
         返回配置页表单 JSON 和默认配置模型
         表单字段：
         - enabled          是否启用
-        - app_id          飞书应用 App ID
-        - app_secret      飞书应用 App Secret
+        - app_id          Lark应用 App ID
+        - app_secret      Lark应用 App Secret
         - webhook_token   Webhook Token（验证回调来源）
         - encrypt_key     消息加密 Key（可选，为空则不加密）
         - admin_users     管理员 open_id 列表（逗号分隔）
@@ -144,7 +149,13 @@ class LarkMessager(_PluginBase):
                                 "component": "VCol",
                                 "props": {"cols": 12, "md": 2},
                                 "content": [
-                                    {"component": "VSwitch", "props": {"model": "enabled", "label": "启用插件"}}
+                                    {
+                                        "component": "VSwitch",
+                                        "props": {
+                                            "model": "enabled",
+                                            "label": "启用插件",
+                                        },
+                                    }
                                 ],
                             },
                             {
@@ -155,7 +166,7 @@ class LarkMessager(_PluginBase):
                                         "component": "VTextField",
                                         "props": {
                                             "model": "app_id",
-                                            "label": "飞书 App ID",
+                                            "label": "Lark App ID",
                                             "placeholder": "cli_xxxxxxxxxxxxxxxx",
                                             "clearable": True,
                                         },
@@ -176,7 +187,7 @@ class LarkMessager(_PluginBase):
                                         "component": "VTextField",
                                         "props": {
                                             "model": "app_secret",
-                                            "label": "飞书 App Secret",
+                                            "label": "Lark App Secret",
                                             "placeholder": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
                                             "type": "password",
                                             "clearable": True,
@@ -272,7 +283,7 @@ class LarkMessager(_PluginBase):
                                             "type": "info",
                                             "variant": "tonal",
                                             "text": "Webhook 地址：{{ BASE_URL }}/api/v1/plugin/LarkMessager/webhook"
-                                                     "（将 BASE_URL 替换为你的 MoviePilot 访问地址）",
+                                            "（将 BASE_URL 替换为你的 MoviePilot 访问地址）",
                                         },
                                     }
                                 ],
@@ -296,7 +307,9 @@ class LarkMessager(_PluginBase):
     # ------------------------------------------------------------------ #
     def get_page(self) -> List[dict]:
         """返回插件详情页（连接状态 + Webhook 地址 + 测试按钮）"""
-        status = "✅ 已启用" if self._enabled and self._client else "❌ 未启用或配置不完整"
+        status = (
+            "✅ 已启用" if self._enabled and self._client else "❌ 未启用或配置不完整"
+        )
         app_id_hint = (self._app_id[:8] + "...") if self._app_id else "（未配置）"
         return [
             {
@@ -312,8 +325,8 @@ class LarkMessager(_PluginBase):
                 "props": {
                     "type": "info",
                     "variant": "outlined",
-                    "text": "Webhook 地址（填到飞书开放平台 > 事件订阅 > 请求网址）："
-                             "/api/v1/plugin/LarkMessager/webhook",
+                    "text": "Webhook 地址（填到Lark开放平台 > 事件订阅 > 请求网址）："
+                    "/api/v1/plugin/LarkMessager/webhook",
                 },
             },
             {
@@ -357,8 +370,8 @@ class LarkMessager(_PluginBase):
     def get_api(self) -> List[Dict[str, Any]]:
         """
         注册插件 API 端点：
-        - POST /webhook — 飞书事件回调（auth=None，飞书不携带 MoviePilot Token）
-        - GET  /test     — 测试飞书连接（auth=bear）
+        - POST /webhook — Lark事件回调（auth=None，Lark不携带 MoviePilot Token）
+        - GET  /test     — 测试Lark连接（auth=bear）
         - GET  /status   — 返回运行状态（auth=bear）
         """
         return [
@@ -367,15 +380,15 @@ class LarkMessager(_PluginBase):
                 "endpoint": self._webhook_endpoint,
                 "methods": ["POST", "GET"],
                 "auth": None,
-                "summary": "飞书事件回调 Webhook",
-                "description": "接收飞书开放平台推送的事件，包括消息、按钮回调等。",
+                "summary": "Lark事件回调 Webhook",
+                "description": "接收Lark开放平台推送的事件，包括消息、按钮回调等。",
             },
             {
                 "path": "/test",
                 "endpoint": self._test_endpoint,
                 "methods": ["GET"],
                 "auth": "bear",
-                "summary": "测试飞书连接",
+                "summary": "测试Lark连接",
                 "description": "验证 App ID / App Secret 是否能正常获取 Token。",
             },
             {
@@ -393,7 +406,7 @@ class LarkMessager(_PluginBase):
     # ------------------------------------------------------------------ #
     async def _webhook_endpoint(self, request: Request) -> Response:
         """
-        飞书事件回调端点
+        Lark事件回调端点
         处理：
         1. URL 验证（event_type = url_verification）
         2. 消息接收（im.message.receive_v1）
@@ -417,7 +430,7 @@ class LarkMessager(_PluginBase):
         # —— URL 验证 —— #
         if "challenge" in body:
             challenge = body["challenge"]
-            logger.info("飞书 URL 验证请求，返回 challenge")
+            logger.info("Lark URL 验证请求，返回 challenge")
             return JSONResponse({"challenge": challenge})
 
         # —— 消息解密（加密模式） —— #
@@ -438,12 +451,14 @@ class LarkMessager(_PluginBase):
         token_from_header = ""
         if request.headers.get("X-Lark-Signature"):
             token_from_header = request.headers.get("X-Lark-Signature", "")
-        # 飞书也在 query 参数中传 token（部分版本）
+        # Lark也在 query 参数中传 token（部分版本）
         if self._webhook_token:
             query_token = request.query_params.get("token", "")
             if query_token != self._webhook_token:
                 logger.warning("Webhook token 校验失败")
-                return JSONResponse({"error": "token verification failed"}, status_code=403)
+                return JSONResponse(
+                    {"error": "token verification failed"}, status_code=403
+                )
 
         # —— 处理消息接收事件 —— #
         if event_type == "im.message.receive_v1":
@@ -495,7 +510,7 @@ class LarkMessager(_PluginBase):
                 },
             )
         )
-        logger.info("已转发飞书消息到 UserMessage 事件：%s", user_msg.text[:50])
+        logger.info("已转发Lark消息到 UserMessage 事件：%s", user_msg.text[:50])
 
     async def _handle_card_action(self, event: LarkWebhookEvent):
         """处理卡片按钮回调事件"""
@@ -503,9 +518,17 @@ class LarkMessager(_PluginBase):
         action = evt.get("action", {})
         operator = evt.get("operator", {})
         action_id = action.get("action_id", "")
-        action_value = action.get("value", {}).get("value", "") if isinstance(action.get("value"), dict) else str(action.get("value", ""))
+        action_value = (
+            action.get("value", {}).get("value", "")
+            if isinstance(action.get("value"), dict)
+            else str(action.get("value", ""))
+        )
 
-        logger.info("收到卡片按钮回调：action_id=%s, operator=%s", action_id, operator.get("open_id"))
+        logger.info(
+            "收到卡片按钮回调：action_id=%s, operator=%s",
+            action_id,
+            operator.get("open_id"),
+        )
 
         # 发送 MessageAction 事件
         eventmanager.send_event(
@@ -525,12 +548,16 @@ class LarkMessager(_PluginBase):
     #  /test 端点
     # ------------------------------------------------------------------ #
     def _test_endpoint(self, request: Request) -> JSONResponse:
-        """测试飞书 App ID / App Secret 是否有效"""
+        """测试Lark App ID / App Secret 是否有效"""
         if not self._client:
-            return JSONResponse({"ok": False, "msg": "插件未启用或 App ID / App Secret 未配置"})
+            return JSONResponse(
+                {"ok": False, "msg": "插件未启用或 App ID / App Secret 未配置"}
+            )
         try:
             token = self._client._get_tenant_access_token(force=True)
-            return JSONResponse({"ok": True, "msg": "连接成功", "token_prefix": token[:10] + "..."})
+            return JSONResponse(
+                {"ok": True, "msg": "连接成功", "token_prefix": token[:10] + "..."}
+            )
         except Exception as e:
             return JSONResponse({"ok": False, "msg": f"连接失败：{str(e)}"})
 
@@ -539,14 +566,16 @@ class LarkMessager(_PluginBase):
     # ------------------------------------------------------------------ #
     def _status_endpoint(self, request: Request) -> JSONResponse:
         """返回插件运行状态"""
-        return JSONResponse({
-            "enabled": self._enabled,
-            "app_id": self._app_id[:8] + "..." if self._app_id else "",
-            "has_client": self._client is not None,
-            "has_crypto": self._crypto is not None,
-            "admin_count": len(self._admin_users),
-            "chat_id": self._chat_id[:8] + "..." if self._chat_id else "",
-        })
+        return JSONResponse(
+            {
+                "enabled": self._enabled,
+                "app_id": self._app_id[:8] + "..." if self._app_id else "",
+                "has_client": self._client is not None,
+                "has_crypto": self._crypto is not None,
+                "admin_count": len(self._admin_users),
+                "chat_id": self._chat_id[:8] + "..." if self._chat_id else "",
+            }
+        )
 
     # ------------------------------------------------------------------ #
     #  远程命令
@@ -558,7 +587,7 @@ class LarkMessager(_PluginBase):
             {
                 "cmd": "/lark_test",
                 "event": EventType.PluginAction,
-                "desc": "向飞书发送测试消息",
+                "desc": "向Lark发送测试消息",
                 "category": "插件命令",
                 "data": {"action": "larkmessager_test"},
             }
@@ -579,9 +608,14 @@ class LarkMessager(_PluginBase):
         try:
             card = self._client.build_card(
                 title="LarkMessager 测试",
-                content="✅ 飞书消息插件连接正常！这是一条测试卡片消息。",
+                content="✅ Lark消息插件连接正常！这是一条测试卡片消息。",
                 buttons=[
-                    {"text": "点击确认", "action_id": "test_ok", "value": "ok", "type": "primary"},
+                    {
+                        "text": "点击确认",
+                        "action_id": "test_ok",
+                        "value": "ok",
+                        "type": "primary",
+                    },
                 ],
             )
             self._client.send_card(self._chat_id, card)
@@ -592,7 +626,7 @@ class LarkMessager(_PluginBase):
     @eventmanager.register(EventType.NoticeMessage)
     def handle_notice_message(self, event: Event):
         """
-        监听 NoticeMessage 事件，将 MoviePilot 系统通知转发到飞书
+        监听 NoticeMessage 事件，将 MoviePilot 系统通知转发到Lark
         支持文本、卡片、图片附件
         """
         if not self._enabled or not self._client:
@@ -618,6 +652,7 @@ class LarkMessager(_PluginBase):
             # 有图片：先上传图片并发送图片消息，再附卡片说明
             if image:
                 import tempfile, os
+
                 tmp_path = None
                 try:
                     if image.startswith("http"):
@@ -627,7 +662,9 @@ class LarkMessager(_PluginBase):
                         ct = img_resp.headers.get("Content-Type", "")
                         if "jpeg" in ct or "jpg" in ct:
                             suffix = ".jpg"
-                        with tempfile.NamedTemporaryFile(suffix=suffix, delete=False) as tmp:
+                        with tempfile.NamedTemporaryFile(
+                            suffix=suffix, delete=False
+                        ) as tmp:
                             tmp.write(img_resp.content)
                             tmp_path = tmp.name
                     else:
@@ -647,14 +684,16 @@ class LarkMessager(_PluginBase):
                 )
                 self._client.send_card(target, card, receive_id_type=rid_type)
 
-            logger.debug("NoticeMessage 已转发到飞书：%s", title)
+            logger.debug("NoticeMessage 已转发到Lark：%s", title)
         except Exception as e:
-            logger.error("NoticeMessage 转发到飞书失败：%s", e)
+            logger.error("NoticeMessage 转发到Lark失败：%s", e)
 
     # ------------------------------------------------------------------ #
     #  消息发送辅助方法（供外部调用）
     # ------------------------------------------------------------------ #
-    def post_message(self, title: str, content: str, target: str = "", color: str = "blue"):
+    def post_message(
+        self, title: str, content: str, target: str = "", color: str = "blue"
+    ):
         """
         发送通知卡片（供链式调用或外部直接调用）
         :param title: 卡片标题
