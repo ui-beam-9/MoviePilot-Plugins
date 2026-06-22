@@ -39,6 +39,8 @@ def _ensure_lark_channel() -> None:
     MessageChannel._member_map_["Lark"] = new_member
     MessageChannel._value2member_map_["Lark"] = new_member
     MessageChannel.__members__["Lark"] = new_member
+    # 关键：设置类属性，否则 MessageChannel.Lark 访问会抛 AttributeError
+    setattr(MessageChannel, "Lark", new_member)
 
 
 _ensure_lark_channel()
@@ -102,8 +104,8 @@ class LarkMessager(_PluginBase):
 
         if self._enabled and self._app_id and self._app_secret:
             self._client = LarkClient(self._app_id, self._app_secret)
-            if self._encrypt_key:
-                self._crypto = LarkCrypto(self._encrypt_key)
+            if self._encrypt_key or self._app_secret:
+                self._crypto = LarkCrypto(self._encrypt_key, self._app_secret)
             logger.info("LarkMessager 初始化成功，App ID：%s", self._app_id)
         else:
             self._client = None
@@ -408,19 +410,36 @@ class LarkMessager(_PluginBase):
         """
         Lark事件回调端点
         处理：
-        1. URL 验证（event_type = url_verification）
-        2. 消息接收（im.message.receive_v1）
-        3. 卡片按钮回调（card.action.trigger）
+        1. 签名校验（如配置了 app_secret）
+        2. URL 验证（event_type = url_verification）
+        3. 消息接收（im.message.receive_v1）
+        4. 卡片按钮回调（card.action.trigger）
         """
+        # —— 获取原始请求体（只能读一次） —— #
+        raw_body = await request.body()
+
+        # —— 签名校验（如配置了 app_secret） —— #
+        if self._app_secret and self._crypto:
+            signature = request.headers.get("X-Lark-Signature", "")
+            if not signature:
+                logger.warning("缺少 X-Lark-Signature 头，请在 Lark 应用后台开启事件签名校验")
+            else:
+                if not self._crypto.verify_signature(signature, raw_body):
+                    logger.warning("X-Lark-Signature 校验失败")
+                    return JSONResponse(
+                        {"error": "signature verification failed"}, status_code=403
+                    )
+
+        # —— 解析请求体 —— #
         try:
-            body = await request.json()
+            body = json.loads(raw_body.decode("utf-8"))
         except Exception:
             # 也可能为加密模式，body 是加密字符串
-            raw = (await request.body()).decode("utf-8")
-            if self._crypto and raw:
+            raw_str = raw_body.decode("utf-8")
+            if self._crypto and raw_str:
                 try:
-                    raw = self._crypto.decrypt(raw)
-                    body = json.loads(raw)
+                    plaintext = self._crypto.decrypt(raw_str)
+                    body = json.loads(plaintext)
                 except Exception as e:
                     logger.error("Webhook 解密失败：%s", e)
                     return JSONResponse({"error": "decrypt failed"}, status_code=400)
@@ -448,9 +467,6 @@ class LarkMessager(_PluginBase):
         event_type = event.event_type
 
         # —— Token 校验（如配置了 webhook_token） —— #
-        token_from_header = ""
-        if request.headers.get("X-Lark-Signature"):
-            token_from_header = request.headers.get("X-Lark-Signature", "")
         # Lark也在 query 参数中传 token（部分版本）
         if self._webhook_token:
             query_token = request.query_params.get("token", "")
@@ -491,11 +507,14 @@ class LarkMessager(_PluginBase):
         from app.schemas import CommingMessage, MessageChannel
         from app.schemas.types import MediaType
 
+        # 优先使用 sender name，没有则使用 sender_id
+        sender_name = sender.get("name", "") or sender.get("sender_id", "Unknown")
+
         comming = CommingMessage(
             channel=MessageChannel.Lark,
             text=user_msg.text or json.dumps(user_msg.content, ensure_ascii=False),
             user_id=user_msg.sender_id,
-            username=sender.get("name", "Unknown"),
+            username=sender_name,
             msg_id=user_msg.message_id,
             pic_url="",
             media_list=[],
@@ -505,7 +524,7 @@ class LarkMessager(_PluginBase):
             Event(
                 EventType.UserMessage,
                 {
-                    "channel": MessageChannel.Lark,
+                    "channel": "Lark",
                     "comming_message": comming,
                 },
             )
@@ -535,7 +554,7 @@ class LarkMessager(_PluginBase):
             Event(
                 EventType.MessageAction,
                 {
-                    "channel": "lark",
+                    "channel": "Lark",
                     "action_id": action_id,
                     "action_value": action_value,
                     "operator_open_id": operator.get("open_id", ""),

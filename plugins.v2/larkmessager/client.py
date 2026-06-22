@@ -297,19 +297,33 @@ class LarkClient:
                 raise RuntimeError(f"下载图片失败：{data.get('msg')}")
         return resp.content
 
+    @staticmethod
+    def _guess_image_ext(img_bytes: bytes) -> str:
+        """
+        根据文件头字节判断图片扩展名（替代已移除的 imghdr 模块）
+        """
+        if img_bytes.startswith(b'\xff\xd8'):
+            return "jpeg"
+        if img_bytes.startswith(b'\x89PNG\r\n\x1a\n'):
+            return "png"
+        if img_bytes.startswith(b'GIF87a') or img_bytes.startswith(b'GIF89a'):
+            return "gif"
+        if img_bytes.startswith(b'BM'):
+            return "bmp"
+        if img_bytes[:4] == b'RIFF' and img_bytes[8:12] == b'WEBP':
+            return "webp"
+        return "png"
+
     def download_image_to_data_url(self, image_key: str) -> str:
         """
         下载Lark图片并转为 data URL（用于 AI 智能体识别图片）
         :param image_key: 图片的 image_key
         :return: data URL 字符串，如 "data:image/png;base64,xxxx"
         """
-        img_bytes = self.download_image(image_key)
         import base64
+        img_bytes = self.download_image(image_key)
+        ext = self._guess_image_ext(img_bytes)
         b64 = base64.b64encode(img_bytes).decode("utf-8")
-        # 尝试从 image_key 判断格式，默认 png
-        ext = "png"
-        if image_key.endswith(".jpg") or image_key.endswith(".jpeg"):
-            ext = "jpeg"
         return f"data:image/{ext};base64,{b64}"
 
     def download_file_bytes(self, file_key: str) -> bytes:

@@ -165,3 +165,5 @@ cython_debug/
 plugins.v2/oidcauth/package-lock.json
 plugins.v2/oidcauth/node_modules/
 plugins.v2/oidcauth/dist/
+
+agents_chat/
