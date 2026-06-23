@@ -1,7 +1,7 @@
 """
 LarkMessager — 国际版飞书 Lark 应用通知与消息交互插件
 MoviePilot V2 插件
-作者：yui_d
+作者：ui-beam-9
 """
 
 import json
@@ -21,29 +21,6 @@ from app.schemas.types import EventType
 from .client import LarkClient
 from .crypto import LarkCrypto
 from .schemas import LarkWebhookEvent, LarkUserMessage, LarkButtonAction
-
-
-# ------------------------------------------------------------------ #
-#  动态注册 MessageChannel.Lark（主仓库尚未合入，不改主仓库）
-# ------------------------------------------------------------------ #
-def _ensure_lark_channel() -> None:
-    """在 MessageChannel 枚举中注册 Lark，幂等可重入。"""
-    from app.schemas import MessageChannel
-
-    if "Lark" in MessageChannel.__members__:
-        return
-    # 动态给枚举加成员（兼容 Python 3.12+）
-    new_member = object.__new__(MessageChannel)
-    new_member._name_ = "Lark"
-    new_member._value_ = "Lark"
-    MessageChannel._member_map_["Lark"] = new_member
-    MessageChannel._value2member_map_["Lark"] = new_member
-    MessageChannel.__members__["Lark"] = new_member
-    # 关键：设置类属性，否则 MessageChannel.Lark 访问会抛 AttributeError
-    setattr(MessageChannel, "Lark", new_member)
-
-
-_ensure_lark_channel()
 
 
 logger = logging.getLogger(__name__)
@@ -422,7 +399,9 @@ class LarkMessager(_PluginBase):
         if self._app_secret and self._crypto:
             signature = request.headers.get("X-Lark-Signature", "")
             if not signature:
-                logger.warning("缺少 X-Lark-Signature 头，请在 Lark 应用后台开启事件签名校验")
+                logger.warning(
+                    "缺少 X-Lark-Signature 头，请在 Lark 应用后台开启事件签名校验"
+                )
             else:
                 if not self._crypto.verify_signature(signature, raw_body):
                     logger.warning("X-Lark-Signature 校验失败")
@@ -511,7 +490,7 @@ class LarkMessager(_PluginBase):
         sender_name = sender.get("name", "") or sender.get("sender_id", "Unknown")
 
         comming = CommingMessage(
-            channel=MessageChannel.Lark,
+            channel=MessageChannel.Feishu,
             text=user_msg.text or json.dumps(user_msg.content, ensure_ascii=False),
             user_id=user_msg.sender_id,
             username=sender_name,

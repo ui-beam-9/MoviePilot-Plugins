@@ -40,7 +40,7 @@ class LarkInteractiveCard(BaseModel):
 
 class LarkWebhookEvent(BaseModel):
     """Lark Webhook 回调事件"""
-    schema: Optional[str] = Field(None, alias="schema")
+    schema_: Optional[str] = Field(None, alias="schema")
     header: Optional[Dict[str, Any]] = Field(None, description="事件头")
     event: Optional[Dict[str, Any]] = Field(None, description="事件体")
     challenge: Optional[str] = Field(None, description="URL 验证挑战码")

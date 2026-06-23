@@ -246,7 +246,7 @@ LarkClient.send_card(receive_id, card)
 飞书用户收到卡片消息
 ```
 
-**关键设计**：插件通过监听 `NoticeMessage` 事件，当渠道为 `MessageChannel.Lark` 时处理消息发送。
+**关键设计**：插件通过监听 `NoticeMessage` 事件，将系统通知转发到 Lark。消息渠道复用主仓库已有的 `MessageChannel.Feishu` 枚举（Lark 就是国际版飞书，语义一致），不动态注册新枚举。
 
 ### 5.2 用户交互消息
 
@@ -563,6 +563,14 @@ class LarkEventType(str, Enum):
 - 不与内置 FeishuModule 的回调冲突
 - 端点为 `/api/v1/plugin/LarkMessager/webhook`，路径独立
 - 支持多实例（不同插件分身路径不同）
+
+### 10.5 复用 MessageChannel.Feishu 而非动态注册 Lark
+
+**理由**：
+- `Enum.__members__` 是只读 mappingproxy，运行时动态注册新枚举成员会抛 `TypeError`
+- Lark 就是国际版飞书，`MessageChannel.Feishu` 枚举语义上已覆盖
+- 下游消息链（agent、命令处理）已按 Feishu 渠道配置好能力集和识别逻辑，复用可免去重复配置
+- 插件构造 `CommingMessage` 时 `channel=MessageChannel.Feishu`，事件数据里用 `"channel": "Lark"` 作为自定义子标识区分
 
 ---
 

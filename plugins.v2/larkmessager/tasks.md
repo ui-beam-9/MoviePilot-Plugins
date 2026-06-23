@@ -1,7 +1,8 @@
 # LarkMessager 插件开发任务清单
 
-> 项目路径：`D:\SynologyDrive\code\MoviePilot\MoviePilot-Plugins`
-> 插件路径：`D:\SynologyDrive\code\MoviePilot\MoviePilot-Plugins\plugins.v2\larkmessager`
+> 插件路径：`plugins.v2/larkmessager/`
+
+## 已完成
 
 - [x] 阶段 1：插件骨架搭建（`__init__.py` 基础结构、类定义、配置项）
 - [x] 阶段 2：Schemas 与加密（`schemas.py`、`crypto.py`）
@@ -9,12 +10,25 @@
 - [x] 阶段 4：Webhook 事件处理（`_webhook_endpoint`，消息接收 + 卡片按钮回调）
 - [x] 阶段 5：NoticeMessage 通知转发（`handle_notice_message`，支持图片附件）
 - [x] 阶段 6：配置页与详情页（`get_form`、`get_page`，Vuetify JSON）
-- [x] 阶段 7：测试、文档与打包（`DESIGN.md`、`tasks.md`、`package.v2.json`、在线图标）
+- [x] 阶段 7：测试、文档与打包（`DESIGN.md`、`tasks.md`）
+
+## Bug 修复（2026-06-24）
+
+- [x] 修复 `schemas.py` 的 `schema` 字段与 Pydantic `BaseModel.schema()` 方法名冲突 → 改名为 `schema_`（alias 保持 `"schema"`）
+- [x] 修复 `__init__.py` 动态注册 `MessageChannel.Lark` 失败（`__members__` 只读 mappingproxy）→ 删除动态注册，复用已有 `MessageChannel.Feishu` 枚举
+- [x] 验证插件可正常 import（`python -c "from app.plugins.larkmessager import LarkMessager"`）
+
+## 待验证
+
+- [ ] 在运行中的 MoviePilot 环境加载插件，确认插件列表可见
+- [ ] 配置 App ID / App Secret，测试连接（`/test` 端点）
+- [ ] 配置 Webhook 地址到 Lark 开放平台，验证 URL 验证 + 消息接收
+- [ ] 验证 NoticeMessage 通知转发（触发系统事件 → Lark 收到卡片）
+- [ ] 验证卡片按钮交互（点击按钮 → MessageAction 事件）
+- [ ] 验证图片/文件上传下载
 
 ## 后续 TODO
 
-- [ ] 在实际 MoviePilot 环境中运行调试，验证 Webhook 事件接收
-- [ ] 验证图片/文件上传下载功能（依赖 MoviePilot 实际运行环境）
 - [ ] 补充单元测试用例
-- [ ] 向 MoviePilot-Plugins 提 PR，合并后发布 release
-- [ ] 主仓库 `MessageChannel` 合入 `Lark` 后，移除插件内的动态注册代码
+- [ ] 向 MoviePilot-Plugins 仓库提 PR，合并后发布 release
+- [ ] 考虑是否支持 WebSocket 长连接（替代 Webhook，免去公网 IP 要求）
