@@ -19,7 +19,7 @@
     }
   },
   "LarkMessager": {
-    "name": "Lark 消息",
+    "name": "Lark 应用消息通知",
     "description": "基于国际版飞书 Lark 开放平台应用的通知与消息交互插件，支持文本、卡片、图片、文件发送及消息回调交互，不依赖内置飞书模块。",
     "labels": "通知,Lark,交互",
     "version": "0.1.0",

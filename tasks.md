@@ -12,4 +12,4 @@
 - [x] 更新 `_status_endpoint` 显示 `open_id`
 - [x] 添加 `switchs` 通知场景类型多选开关（资源下载/整理入库/订阅/站点/媒体服务器/手动处理/插件/智能体/其它）
 - [x] 更新 `handle_notice_message` 根据 `switchs` 过滤消息类型
-- [ ] 用户确认后提交 commit
+- [x] 用户确认后提交 commit

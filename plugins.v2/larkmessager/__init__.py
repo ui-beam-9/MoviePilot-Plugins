@@ -39,7 +39,7 @@ class LarkMessager(_PluginBase):
     """
 
     # —— 插件元数据 —— #
-    plugin_name = "Lark 消息"
+    plugin_name = "Lark 应用消息通知"
     plugin_desc = "基于国际版飞书 Lark 开放平台应用的通知与消息交互插件，支持文本、卡片、图片、文件发送及消息回调交互。"
     plugin_icon = "https://raw.githubusercontent.com/jxxghp/MoviePilot-Plugins/main/icons/FeiShu_A.png"
     plugin_version = "0.1.0"
