@@ -53,10 +53,12 @@ class LarkMessager(_PluginBase):
     _enabled: bool = False
     _app_id: str = ""
     _app_secret: str = ""
-    _webhook_token: str = ""  # 用于验证回调来源
+    _open_id: str = ""  # 默认用户 Open ID
+    _chat_id: str = ""  # 默认群聊 Chat ID
+    _verification_token: str = ""  # 事件订阅 Verification Token
     _encrypt_key: str = ""  # 消息加解密密钥（可选）
     _admin_users: List[str] = []  # 管理员 open_id 列表
-    _chat_id: str = ""  # 默认推送目标聊天 ID
+    _switchs: List[str] = []  # 通知场景类型（为空则全部发送）
 
     # —— 内部客户端 —— #
     _client: Optional[LarkClient] = None
@@ -72,12 +74,14 @@ class LarkMessager(_PluginBase):
         self._enabled = bool(config.get("enabled", False))
         self._app_id = (config.get("app_id") or "").strip()
         self._app_secret = (config.get("app_secret") or "").strip()
-        self._webhook_token = (config.get("webhook_token") or "").strip()
+        self._open_id = (config.get("open_id") or "").strip()
+        self._chat_id = (config.get("chat_id") or "").strip()
+        self._verification_token = (config.get("verification_token") or "").strip()
         self._encrypt_key = (config.get("encrypt_key") or "").strip()
         self._admin_users = [
             u.strip() for u in (config.get("admin_users") or "").split(",") if u.strip()
         ]
-        self._chat_id = (config.get("chat_id") or "").strip()
+        self._switchs = config.get("switchs") or []
 
         if self._enabled and self._app_id and self._app_secret:
             self._client = LarkClient(self._app_id, self._app_secret)
@@ -107,14 +111,16 @@ class LarkMessager(_PluginBase):
     def get_form(self) -> Tuple[List[dict], Dict[str, Any]]:
         """
         返回配置页表单 JSON 和默认配置模型
-        表单字段：
-        - enabled          是否启用
-        - app_id          Lark应用 App ID
-        - app_secret      Lark应用 App Secret
-        - webhook_token   Webhook Token（验证回调来源）
-        - encrypt_key     消息加密 Key（可选，为空则不加密）
-        - admin_users     管理员 open_id 列表（逗号分隔）
-        - chat_id         默认推送目标聊天 ID
+        表单字段（与主仓库飞书通知保持一致）：
+        - enabled             是否启用
+        - app_id              Lark 应用 App ID
+        - app_secret          Lark 应用 App Secret
+        - open_id             默认用户 Open ID
+        - chat_id             默认群聊 Chat ID
+        - verification_token  Verification Token（事件订阅校验）
+        - encrypt_key         Encrypt Key（消息加密，可选）
+        - admin_users         管理员 Open ID 列表（逗号分隔）
+        - switchs             通知场景类型（多选，不选则全部发送）
         """
         return [
             {
@@ -126,28 +132,35 @@ class LarkMessager(_PluginBase):
                         "content": [
                             {
                                 "component": "VCol",
-                                "props": {"cols": 12, "md": 2},
+                                "props": {"cols": 12, "md": 4},
                                 "content": [
                                     {
                                         "component": "VSwitch",
                                         "props": {
                                             "model": "enabled",
-                                            "label": "启用插件",
+                                            "label": "启用 Lark 通知",
+                                            "hint": "开启后将监听通知事件并转发到 Lark",
+                                            "persistentHint": True,
+                                            "color": "primary",
                                         },
                                     }
                                 ],
                             },
                             {
                                 "component": "VCol",
-                                "props": {"cols": 12, "md": 10},
+                                "props": {"cols": 12, "md": 8},
                                 "content": [
                                     {
                                         "component": "VTextField",
                                         "props": {
                                             "model": "app_id",
-                                            "label": "Lark App ID",
+                                            "label": "App ID",
                                             "placeholder": "cli_xxxxxxxxxxxxxxxx",
+                                            "variant": "outlined",
+                                            "hint": "Lark 开放平台应用的 App ID",
+                                            "persistentHint": True,
                                             "clearable": True,
+                                            "density": "comfortable",
                                         },
                                     }
                                 ],
@@ -160,23 +173,27 @@ class LarkMessager(_PluginBase):
                         "content": [
                             {
                                 "component": "VCol",
-                                "props": {"cols": 12, "md": 12},
+                                "props": {"cols": 12},
                                 "content": [
                                     {
                                         "component": "VTextField",
                                         "props": {
                                             "model": "app_secret",
-                                            "label": "Lark App Secret",
+                                            "label": "App Secret",
                                             "placeholder": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+                                            "variant": "outlined",
+                                            "hint": "Lark 开放平台应用的 App Secret",
+                                            "persistentHint": True,
                                             "type": "password",
                                             "clearable": True,
+                                            "density": "comfortable",
                                         },
                                     }
                                 ],
                             },
                         ],
                     },
-                    # —— 第三行：Webhook Token + Encrypt Key —— #
+                    # —— 第三行：默认用户 Open ID + 默认群聊 Chat ID —— #
                     {
                         "component": "VRow",
                         "content": [
@@ -187,46 +204,14 @@ class LarkMessager(_PluginBase):
                                     {
                                         "component": "VTextField",
                                         "props": {
-                                            "model": "webhook_token",
-                                            "label": "Webhook Token",
-                                            "placeholder": "用于验证回调来源",
+                                            "model": "open_id",
+                                            "label": "默认用户 Open ID",
+                                            "placeholder": "ou_xxx",
+                                            "variant": "outlined",
+                                            "hint": "默认通知接收用户的 Open ID，留空则优先使用互动用户",
+                                            "persistentHint": True,
                                             "clearable": True,
-                                        },
-                                    }
-                                ],
-                            },
-                            {
-                                "component": "VCol",
-                                "props": {"cols": 12, "md": 6},
-                                "content": [
-                                    {
-                                        "component": "VTextField",
-                                        "props": {
-                                            "model": "encrypt_key",
-                                            "label": "Encrypt Key（可选）",
-                                            "placeholder": "43位加密密钥，留空不加密",
-                                            "clearable": True,
-                                        },
-                                    }
-                                ],
-                            },
-                        ],
-                    },
-                    # —— 第四行：管理员 + 默认聊天 ID —— #
-                    {
-                        "component": "VRow",
-                        "content": [
-                            {
-                                "component": "VCol",
-                                "props": {"cols": 12, "md": 6},
-                                "content": [
-                                    {
-                                        "component": "VTextField",
-                                        "props": {
-                                            "model": "admin_users",
-                                            "label": "管理员 Open ID（逗号分隔）",
-                                            "placeholder": "ou_xxxxxxxx,ou_yyyyyyyy",
-                                            "clearable": True,
+                                            "density": "comfortable",
                                         },
                                     }
                                 ],
@@ -239,16 +224,124 @@ class LarkMessager(_PluginBase):
                                         "component": "VTextField",
                                         "props": {
                                             "model": "chat_id",
-                                            "label": "默认推送聊天 ID",
-                                            "placeholder": "oc_xxxxxxxx 或 open_id",
+                                            "label": "默认群聊 Chat ID",
+                                            "placeholder": "oc_xxx",
+                                            "variant": "outlined",
+                                            "hint": "默认通知接收群聊的 Chat ID，和 Open ID 二选一即可",
+                                            "persistentHint": True,
                                             "clearable": True,
+                                            "density": "comfortable",
                                         },
                                     }
                                 ],
                             },
                         ],
                     },
-                    # —— 提示信息 —— #
+                    # —— 第四行：Verification Token + Encrypt Key —— #
+                    {
+                        "component": "VRow",
+                        "content": [
+                            {
+                                "component": "VCol",
+                                "props": {"cols": 12, "md": 6},
+                                "content": [
+                                    {
+                                        "component": "VTextField",
+                                        "props": {
+                                            "model": "verification_token",
+                                            "label": "Verification Token",
+                                            "placeholder": "事件订阅 Token",
+                                            "variant": "outlined",
+                                            "hint": "Lark 事件订阅的 Verification Token，启用事件校验时填写",
+                                            "persistentHint": True,
+                                            "clearable": True,
+                                            "density": "comfortable",
+                                        },
+                                    }
+                                ],
+                            },
+                            {
+                                "component": "VCol",
+                                "props": {"cols": 12, "md": 6},
+                                "content": [
+                                    {
+                                        "component": "VTextField",
+                                        "props": {
+                                            "model": "encrypt_key",
+                                            "label": "Encrypt Key",
+                                            "placeholder": "留空则不加密",
+                                            "variant": "outlined",
+                                            "hint": "Lark 事件订阅的 Encrypt Key，启用消息加密时填写",
+                                            "persistentHint": True,
+                                            "clearable": True,
+                                            "density": "comfortable",
+                                        },
+                                    }
+                                ],
+                            },
+                        ],
+                    },
+                    # —— 第五行：管理员白名单 —— #
+                    {
+                        "component": "VRow",
+                        "content": [
+                            {
+                                "component": "VCol",
+                                "props": {"cols": 12},
+                                "content": [
+                                    {
+                                        "component": "VTextField",
+                                        "props": {
+                                            "model": "admin_users",
+                                            "label": "管理员白名单",
+                                            "placeholder": "Open ID 列表，多个使用 , 分隔",
+                                            "variant": "outlined",
+                                            "hint": "允许执行命令和管理操作的 Open ID 列表，多个使用 , 分隔",
+                                            "persistentHint": True,
+                                            "clearable": True,
+                                            "density": "comfortable",
+                                        },
+                                    }
+                                ],
+                            },
+                        ],
+                    },
+                    # —— 第六行：通知场景类型 —— #
+                    {
+                        "component": "VRow",
+                        "content": [
+                            {
+                                "component": "VCol",
+                                "props": {"cols": 12},
+                                "content": [
+                                    {
+                                        "component": "VSelect",
+                                        "props": {
+                                            "model": "switchs",
+                                            "label": "通知场景类型",
+                                            "multiple": True,
+                                            "chips": True,
+                                            "clearable": True,
+                                            "hint": "需要接收通知的场景类型，不选则全部发送",
+                                            "persistentHint": True,
+                                            "items": [
+                                                "资源下载",
+                                                "整理入库",
+                                                "订阅",
+                                                "站点",
+                                                "媒体服务器",
+                                                "手动处理",
+                                                "插件",
+                                                "智能体",
+                                                "其它",
+                                            ],
+                                        },
+                                    }
+                                ],
+                            },
+                        ],
+                    },
+                    # —— Webhook 地址提示 —— #
                     {
                         "component": "VRow",
                         "content": [
@@ -261,8 +354,31 @@ class LarkMessager(_PluginBase):
                                         "props": {
                                             "type": "info",
                                             "variant": "tonal",
-                                            "text": "Webhook 地址：{{ BASE_URL }}/api/v1/plugin/LarkMessager/webhook"
-                                            "（将 BASE_URL 替换为你的 MoviePilot 访问地址）",
+                                            "text": "Webhook 地址（填入 Lark 开放平台 > 事件订阅 > 请求网址）：\n/api/v1/plugin/LarkMessager/webhook",
+                                        },
+                                    }
+                                ],
+                            }
+                        ],
+                    },
+                    # —— 使用说明 —— #
+                    {
+                        "component": "VRow",
+                        "content": [
+                            {
+                                "component": "VCol",
+                                "props": {"cols": 12},
+                                "content": [
+                                    {
+                                        "component": "VAlert",
+                                        "props": {
+                                            "type": "warning",
+                                            "variant": "tonal",
+                                            "text": "配置步骤：\n"
+                                            "1. 在 Lark 开放平台创建自建应用，获取 App ID 和 App Secret\n"
+                                            "2. 开启「事件订阅」，将 Webhook 地址填入请求网址\n"
+                                            "3. 订阅事件：im.message.receive_v1（接收消息）、card.action.trigger（按钮回调）\n"
+                                            "4. 添加机器人到目标群聊或获取用户 Open ID",
                                         },
                                     }
                                 ],
@@ -275,10 +391,12 @@ class LarkMessager(_PluginBase):
             "enabled": False,
             "app_id": "",
             "app_secret": "",
-            "webhook_token": "",
+            "open_id": "",
+            "chat_id": "",
+            "verification_token": "",
             "encrypt_key": "",
             "admin_users": "",
-            "chat_id": "",
+            "switchs": [],
         }
 
     # ------------------------------------------------------------------ #
@@ -287,14 +405,15 @@ class LarkMessager(_PluginBase):
     def get_page(self) -> List[dict]:
         """返回插件详情页（连接状态 + Webhook 地址 + 测试按钮）"""
         status = (
-            "✅ 已启用" if self._enabled and self._client else "❌ 未启用或配置不完整"
+            "已启用" if self._enabled and self._client else "未启用或配置不完整"
         )
-        app_id_hint = (self._app_id[:8] + "...") if self._app_id else "（未配置）"
+        status_color = "success" if self._enabled and self._client else "warning"
+        app_id_hint = (self._app_id[:8] + "...") if self._app_id else "(未配置)"
         return [
             {
                 "component": "VAlert",
                 "props": {
-                    "type": "info" if self._enabled and self._client else "warning",
+                    "type": status_color,
                     "variant": "tonal",
                     "text": f"LarkMessager 状态：{status}  |  App ID：{app_id_hint}",
                 },
@@ -303,9 +422,8 @@ class LarkMessager(_PluginBase):
                 "component": "VAlert",
                 "props": {
                     "type": "info",
-                    "variant": "outlined",
-                    "text": "Webhook 地址（填到Lark开放平台 > 事件订阅 > 请求网址）："
-                    "/api/v1/plugin/LarkMessager/webhook",
+                    "variant": "tonal",
+                    "text": "Webhook 地址（填到 Lark 开放平台 > 事件订阅 > 请求网址）：\n/api/v1/plugin/LarkMessager/webhook",
                 },
             },
             {
@@ -317,10 +435,14 @@ class LarkMessager(_PluginBase):
                         "content": [
                             {
                                 "component": "VBtn",
-                                "props": {
-                                    "color": "primary",
-                                    "text": "发送测试消息",
-                                    "onclick": "send_test",
+                                "props": {"color": "primary", "variant": "flat"},
+                                "text": "发送测试消息",
+                                "events": {
+                                    "click": {
+                                        "api": "plugin/LarkMessager/test",
+                                        "method": "GET",
+                                        "params": {},
+                                    }
                                 },
                             }
                         ],
@@ -331,10 +453,14 @@ class LarkMessager(_PluginBase):
                         "content": [
                             {
                                 "component": "VBtn",
-                                "props": {
-                                    "color": "secondary",
-                                    "text": "刷新状态",
-                                    "onclick": "refresh_status",
+                                "props": {"color": "secondary", "variant": "flat"},
+                                "text": "刷新状态",
+                                "events": {
+                                    "click": {
+                                        "api": "plugin/LarkMessager/status",
+                                        "method": "GET",
+                                        "params": {},
+                                    }
                                 },
                             }
                         ],
@@ -445,11 +571,11 @@ class LarkMessager(_PluginBase):
         event = LarkWebhookEvent(**body)
         event_type = event.event_type
 
-        # —— Token 校验（如配置了 webhook_token） —— #
+        # —— Token 校验（如配置了 verification_token） —— #
         # Lark也在 query 参数中传 token（部分版本）
-        if self._webhook_token:
+        if self._verification_token:
             query_token = request.query_params.get("token", "")
-            if query_token != self._webhook_token:
+            if query_token != self._verification_token:
                 logger.warning("Webhook token 校验失败")
                 return JSONResponse(
                     {"error": "token verification failed"}, status_code=403
@@ -571,6 +697,7 @@ class LarkMessager(_PluginBase):
                 "has_client": self._client is not None,
                 "has_crypto": self._crypto is not None,
                 "admin_count": len(self._admin_users),
+                "open_id": self._open_id[:8] + "..." if self._open_id else "",
                 "chat_id": self._chat_id[:8] + "..." if self._chat_id else "",
             }
         )
@@ -600,13 +727,14 @@ class LarkMessager(_PluginBase):
         event_data = event.event_data or {}
         if event_data.get("action") != "larkmessager_test":
             return
-        if not self._client or not self._chat_id:
+        test_target = self._chat_id or self._open_id
+        if not self._client or not test_target:
             logger.warning("LarkMessager：无法发送测试消息，请检查配置")
             return
         try:
             card = self._client.build_card(
                 title="LarkMessager 测试",
-                content="✅ Lark消息插件连接正常！这是一条测试卡片消息。",
+                content="Lark消息插件连接正常！这是一条测试卡片消息。",
                 buttons=[
                     {
                         "text": "点击确认",
@@ -616,7 +744,7 @@ class LarkMessager(_PluginBase):
                     },
                 ],
             )
-            self._client.send_card(self._chat_id, card)
+            self._client.send_card(test_target, card)
             logger.info("LarkMessager 测试消息已发送")
         except Exception as e:
             logger.error("LarkMessager 发送测试消息失败：%s", e)
@@ -630,12 +758,18 @@ class LarkMessager(_PluginBase):
         if not self._enabled or not self._client:
             return
         event_data = event.event_data or {}
+
+        # 场景类型过滤：如设置了 switchs，只发送匹配的场景
+        if self._switchs:
+            msg_type = event_data.get("type", "")
+            if msg_type and msg_type not in self._switchs:
+                return
         title = event_data.get("title", "MoviePilot 通知")
         text = event_data.get("text", "")
         image = event_data.get("image", "")
         userid = event_data.get("userid", "")
 
-        target = userid or self._chat_id
+        target = userid or self._open_id or self._chat_id
         if not target:
             return
 
@@ -696,13 +830,13 @@ class LarkMessager(_PluginBase):
         发送通知卡片（供链式调用或外部直接调用）
         :param title: 卡片标题
         :param content: 卡片正文
-        :param target: 推送目标（为空则使用默认 chat_id）
+        :param target: 推送目标（为空则依次使用 open_id、chat_id）
         :param color: 卡片颜色
         """
         if not self._client:
             logger.warning("LarkMessager：client 未初始化，无法发送消息")
             return False
-        target = target or self._chat_id
+        target = target or self._open_id or self._chat_id
         if not target:
             logger.warning("LarkMessager：未配置推送目标")
             return False
@@ -724,7 +858,7 @@ class LarkMessager(_PluginBase):
         """发送纯文本消息"""
         if not self._client:
             return False
-        target = target or self._chat_id
+        target = target or self._open_id or self._chat_id
         if not target:
             return False
         try:
