@@ -13,3 +13,5 @@
 - [x] 添加 `switchs` 通知场景类型多选开关（资源下载/整理入库/订阅/站点/媒体服务器/手动处理/插件/智能体/其它）
 - [x] 更新 `handle_notice_message` 根据 `switchs` 过滤消息类型
 - [x] 用户确认后提交 commit
+- [x] 重命名 plugin_name 和 package.v2.json name → "Lark 应用消息通知"
+- [x] 重新设计 get_page() 详情页 UI（VCard 容器、图标按钮、测试结果反馈）

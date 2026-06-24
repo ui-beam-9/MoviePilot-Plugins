@@ -403,71 +403,202 @@ class LarkMessager(_PluginBase):
     #  详情页
     # ------------------------------------------------------------------ #
     def get_page(self) -> List[dict]:
-        """返回插件详情页（连接状态 + Webhook 地址 + 测试按钮）"""
-        status = (
-            "已启用" if self._enabled and self._client else "未启用或配置不完整"
-        )
+        """返回插件详情页（运行状态、Webhook 地址、操作按钮、测试结果反馈）"""
+        status_text = "已启用" if self._enabled and self._client else "未启用或配置不完整"
         status_color = "success" if self._enabled and self._client else "warning"
-        app_id_hint = (self._app_id[:8] + "...") if self._app_id else "(未配置)"
-        return [
+        status_icon = "mdi-check-circle" if self._enabled and self._client else "mdi-alert-circle"
+
+        components = [
+            # —— 状态卡片 —— #
             {
-                "component": "VAlert",
-                "props": {
-                    "type": status_color,
-                    "variant": "tonal",
-                    "text": f"LarkMessager 状态：{status}  |  App ID：{app_id_hint}",
-                },
-            },
-            {
-                "component": "VAlert",
-                "props": {
-                    "type": "info",
-                    "variant": "tonal",
-                    "text": "Webhook 地址（填到 Lark 开放平台 > 事件订阅 > 请求网址）：\n/api/v1/plugin/LarkMessager/webhook",
-                },
-            },
-            {
-                "component": "VRow",
+                "component": "VCard",
+                "props": {"class": "mb-4"},
                 "content": [
                     {
-                        "component": "VCol",
-                        "props": {"cols": 12, "md": 6},
+                        "component": "VCardItem",
                         "content": [
                             {
-                                "component": "VBtn",
-                                "props": {"color": "primary", "variant": "flat"},
-                                "text": "发送测试消息",
-                                "events": {
-                                    "click": {
-                                        "api": "plugin/LarkMessager/test",
-                                        "method": "GET",
-                                        "params": {},
-                                    }
-                                },
-                            }
+                                "component": "VCardTitle",
+                                "text": "Lark 应用消息通知",
+                            },
+                            {
+                                "component": "VCardSubtitle",
+                                "text": "基于 Lark 开放平台应用的消息推送与交互",
+                            },
                         ],
                     },
                     {
-                        "component": "VCol",
-                        "props": {"cols": 12, "md": 6},
+                        "component": "VCardText",
                         "content": [
                             {
-                                "component": "VBtn",
-                                "props": {"color": "secondary", "variant": "flat"},
-                                "text": "刷新状态",
-                                "events": {
-                                    "click": {
-                                        "api": "plugin/LarkMessager/status",
-                                        "method": "GET",
-                                        "params": {},
-                                    }
+                                "component": "VChip",
+                                "props": {
+                                    "color": status_color,
+                                    "variant": "tonal",
+                                    "prependIcon": status_icon,
+                                    "size": "small",
                                 },
-                            }
+                                "text": status_text,
+                            },
+                        ],
+                    },
+                ],
+            },
+            # —— Webhook 地址卡片 —— #
+            {
+                "component": "VCard",
+                "props": {"class": "mb-4"},
+                "content": [
+                    {
+                        "component": "VCardTitle",
+                        "text": "Webhook 地址",
+                    },
+                    {
+                        "component": "VCardText",
+                        "content": [
+                            {
+                                "component": "VAlert",
+                                "props": {
+                                    "type": "info",
+                                    "variant": "tonal",
+                                    "density": "compact",
+                                },
+                                "text": "填到 Lark 开放平台 > 事件订阅 > 请求网址",
+                            },
+                            {
+                                "component": "VTextField",
+                                "props": {
+                                    "modelValue": "/api/v1/plugin/LarkMessager/webhook",
+                                    "readonly": True,
+                                    "variant": "outlined",
+                                    "density": "compact",
+                                    "prependInnerIcon": "mdi-link-variant",
+                                    "hideDetails": True,
+                                },
+                            },
+                        ],
+                    },
+                ],
+            },
+            # —— 操作按钮 —— #
+            {
+                "component": "VCard",
+                "props": {"class": "mb-4"},
+                "content": [
+                    {
+                        "component": "VCardTitle",
+                        "text": "操作",
+                    },
+                    {
+                        "component": "VCardText",
+                        "content": [
+                            {
+                                "component": "VRow",
+                                "content": [
+                                    {
+                                        "component": "VCol",
+                                        "props": {"cols": 12, "md": 6},
+                                        "content": [
+                                            {
+                                                "component": "VBtn",
+                                                "props": {
+                                                    "color": "primary",
+                                                    "variant": "tonal",
+                                                    "block": True,
+                                                    "prependIcon": "mdi-send",
+                                                    "size": "large",
+                                                },
+                                                "text": "发送测试消息",
+                                                "events": {
+                                                    "click": {
+                                                        "api": "plugin/LarkMessager/test",
+                                                        "method": "GET",
+                                                        "params": {},
+                                                    }
+                                                },
+                                            }
+                                        ],
+                                    },
+                                    {
+                                        "component": "VCol",
+                                        "props": {"cols": 12, "md": 6},
+                                        "content": [
+                                            {
+                                                "component": "VBtn",
+                                                "props": {
+                                                    "color": "secondary",
+                                                    "variant": "tonal",
+                                                    "block": True,
+                                                    "prependIcon": "mdi-refresh",
+                                                    "size": "large",
+                                                },
+                                                "text": "刷新状态",
+                                                "events": {
+                                                    "click": {
+                                                        "api": "plugin/LarkMessager/status",
+                                                        "method": "GET",
+                                                        "params": {},
+                                                    }
+                                                },
+                                            }
+                                        ],
+                                    },
+                                ],
+                            },
+                            # —— 按钮说明 —— #
+                            {
+                                "component": "VAlert",
+                                "props": {
+                                    "type": "info",
+                                    "variant": "text",
+                                    "density": "compact",
+                                    "icon": "mdi-information-outline",
+                                },
+                                "text": "点击「发送测试消息」将在 Lark 中收到一条测试卡片；点击「刷新状态」将更新上方状态信息。",
+                            },
                         ],
                     },
                 ],
             },
         ]
+
+        # —— 测试结果反馈（如存在） —— #
+        # 用 save_data/get_data 持久化，跨 worker 进程也能读到
+        last_result = self.get_data("last_test_result")
+        if last_result:
+            test_ok = last_result.get("ok", False)
+            test_msg = last_result.get("msg", "")
+            test_time = last_result.get("time", "")
+            # text 带时间戳，确保每次点击测试后 VAlert 内容都变化，
+            # 避免 Vue v-for(:key=index) 因内容相同跳过 patch
+            alert_text = test_msg if not test_time else f"{test_msg}\n更新时间：{test_time}"
+            components.append({
+                "component": "VCard",
+                "props": {"class": "mb-4"},
+                "content": [
+                    {
+                        "component": "VCardTitle",
+                        "text": "测试结果",
+                    },
+                    {
+                        "component": "VCardText",
+                        "content": [
+                            {
+                                "component": "VAlert",
+                                "props": {
+                                    "type": "success" if test_ok else "error",
+                                    "variant": "tonal",
+                                    "density": "compact",
+                                    "icon": "mdi-check-circle" if test_ok else "mdi-close-circle",
+                                },
+                                "text": alert_text,
+                            },
+                        ],
+                    },
+                ],
+            })
+
+        return components
 
     # ------------------------------------------------------------------ #
     #  API 端点
@@ -672,24 +803,60 @@ class LarkMessager(_PluginBase):
     #  /test 端点
     # ------------------------------------------------------------------ #
     def _test_endpoint(self, request: Request) -> JSONResponse:
-        """测试Lark App ID / App Secret 是否有效"""
+        """
+        发送测试消息到 Lark，验证 App ID / App Secret / 推送目标是否全部有效。
+        真实调用 send_card 发送一条测试卡片（而非仅校验 Token）。
+        结果通过 save_data 持久化，供 get_page() 下次渲染时展示「测试结果」卡片。
+
+        Vuetify 模式下前端 commonAction 不显示返回值，只触发 get_page 重渲染。
+        每次 result 带 time 时间戳，让 get_page 返回的 VAlert text 每次不同，
+        避免 Vue v-for(:key=index) 因内容相同跳过 patch 导致「第二次点击不刷新」。
+        """
+        def _store(ok: bool, msg: str) -> dict:
+            result = {
+                "ok": ok,
+                "msg": msg,
+                "time": time.strftime("%Y-%m-%d %H:%M:%S"),
+            }
+            self.save_data("last_test_result", result)
+            return result
+
         if not self._client:
-            return JSONResponse(
-                {"ok": False, "msg": "插件未启用或 App ID / App Secret 未配置"}
-            )
+            return JSONResponse(_store(False, "插件未启用，或 App ID / App Secret 未配置"))
+
+        target = self._chat_id or self._open_id
+        if not target:
+            return JSONResponse(_store(False, "未配置默认接收目标（Open ID 或 Chat ID 至少填一项）"))
+
+        receive_id_type = "chat_id" if target.startswith("oc_") else "open_id"
         try:
-            token = self._client._get_tenant_access_token(force=True)
+            card = self._client.build_card(
+                title="LarkMessager 测试",
+                content="Lark 消息插件连接正常！这是一条测试卡片消息。",
+                buttons=[
+                    {
+                        "text": "点击确认",
+                        "action_id": "test_ok",
+                        "value": "ok",
+                        "type": "primary",
+                    }
+                ],
+            )
+            message_id = self._client.send_card(target, card, receive_id_type)
+            logger.info("LarkMessager 测试消息已发送，message_id=%s", message_id)
             return JSONResponse(
-                {"ok": True, "msg": "连接成功", "token_prefix": token[:10] + "..."}
+                _store(True, f"测试消息已发送，请到 Lark 查收（message_id={message_id}）")
             )
         except Exception as e:
-            return JSONResponse({"ok": False, "msg": f"连接失败：{str(e)}"})
+            logger.error("LarkMessager 发送测试消息失败：%s", e)
+            return JSONResponse(_store(False, f"发送失败：{e}"))
 
     # ------------------------------------------------------------------ #
     #  /status 端点
     # ------------------------------------------------------------------ #
     def _status_endpoint(self, request: Request) -> JSONResponse:
         """返回插件运行状态"""
+        self.del_data("last_test_result")  # 刷新状态时清空旧的测试结果反馈
         return JSONResponse(
             {
                 "enabled": self._enabled,
@@ -699,6 +866,7 @@ class LarkMessager(_PluginBase):
                 "admin_count": len(self._admin_users),
                 "open_id": self._open_id[:8] + "..." if self._open_id else "",
                 "chat_id": self._chat_id[:8] + "..." if self._chat_id else "",
+                "webhook_url": "/api/v1/plugin/LarkMessager/webhook",
             }
         )
 
