@@ -5,7 +5,6 @@ MoviePilot V2 插件
 """
 
 import json
-import logging
 import time
 from pathlib import Path
 from typing import Any, Dict, List, Tuple, Optional
@@ -16,14 +15,13 @@ from fastapi.responses import JSONResponse
 
 from app.plugins import _PluginBase
 from app.core.event import eventmanager, Event
+from app.log import logger
 from app.schemas.types import EventType
 
 from .client import LarkClient
 from .crypto import LarkCrypto
 from .schemas import LarkWebhookEvent, LarkUserMessage, LarkButtonAction
 
-
-logger = logging.getLogger(__name__)
 
 # 插件图标（放在 icons/ 目录，package.v2.json 引用）
 
@@ -83,10 +81,29 @@ class LarkMessager(_PluginBase):
         ]
         self._switchs = config.get("switchs") or []
 
+        # 诊断日志：确认配置读取情况（不输出完整值防泄露）
+        logger.info(
+            "LarkMessager init_plugin: enabled=%s, app_id=%s, encrypt_key_len=%d, "
+            "verification_token_len=%d",
+            self._enabled,
+            (self._app_id[:8] + "...") if self._app_id else "(empty)",
+            len(self._encrypt_key),
+            len(self._verification_token),
+        )
+
         if self._enabled and self._app_id and self._app_secret:
             self._client = LarkClient(self._app_id, self._app_secret)
-            if self._encrypt_key or self._app_secret:
+            # crypto 仅在配置了 encrypt_key 时初始化（签名校验和解密都需要 encrypt_key）
+            # app_secret 不参与 Lark 事件订阅的签名/加密算法
+            if self._encrypt_key:
                 self._crypto = LarkCrypto(self._encrypt_key, self._app_secret)
+                logger.info("LarkMessager: crypto 已初始化（encrypt_key 已配置）")
+            else:
+                self._crypto = None
+                logger.warning(
+                    "LarkMessager: encrypt_key 未配置，将无法校验签名和解密加密请求。"
+                    "如 Lark 后台开了 Encrypt Key，请到插件配置填写（两边必须一致）"
+                )
             logger.info("LarkMessager 初始化成功，App ID：%s", self._app_id)
         else:
             self._client = None
@@ -562,10 +579,12 @@ class LarkMessager(_PluginBase):
             },
         ]
 
-        # —— 测试结果反馈（如存在） —— #
-        # 用 save_data/get_data 持久化，跨 worker 进程也能读到
+        # —— 测试结果反馈（仅展示「尚未展示过」的那一次） —— #
+        # 用 save_data/get_data 持久化，跨 worker 进程也能读到。
+        # displayed 标志：/test 写 False，这里展示一次后改 True 保存，
+        # 避免每次打开插件对话框都看到上次的旧测试结果。
         last_result = self.get_data("last_test_result")
-        if last_result:
+        if last_result and not last_result.get("displayed", True):
             test_ok = last_result.get("ok", False)
             test_msg = last_result.get("msg", "")
             test_time = last_result.get("time", "")
@@ -597,6 +616,9 @@ class LarkMessager(_PluginBase):
                     },
                 ],
             })
+            # 标记为「已展示」，下次 get_page（如重新打开对话框）不再显示
+            last_result["displayed"] = True
+            self.save_data("last_test_result", last_result)
 
         return components
 
@@ -606,16 +628,22 @@ class LarkMessager(_PluginBase):
     def get_api(self) -> List[Dict[str, Any]]:
         """
         注册插件 API 端点：
-        - POST /webhook — Lark事件回调（auth=None，Lark不携带 MoviePilot Token）
+        - POST /webhook — Lark事件回调（allow_anonymous=True，Lark不携带 MoviePilot 凭证；
+          安全由 Lark 的 X-Lark-Signature 签名校验保证，已在 _webhook_endpoint 内实现）
         - GET  /test     — 测试Lark连接（auth=bear）
         - GET  /status   — 返回运行状态（auth=bear）
+
+        注意：MoviePilot 框架在 app/core/plugin.py 的 get_plugin_apis 里会把 falsy 的 auth
+        强制改成 "apikey"，在 app/api/endpoints/plugin.py 的 register_plugin_api 里默认
+        append Depends(verify_apikey)。所以 "auth": None 不起作用，必须用
+        "allow_anonymous": True 才能让 Lark 后台不带 apikey 直接访问 webhook。
         """
         return [
             {
                 "path": "/webhook",
                 "endpoint": self._webhook_endpoint,
                 "methods": ["POST", "GET"],
-                "auth": None,
+                "allow_anonymous": True,  # 绕过框架 apikey 校验，由 Lark 签名校验保证安全
                 "summary": "Lark事件回调 Webhook",
                 "description": "接收Lark开放平台推送的事件，包括消息、按钮回调等。",
             },
@@ -645,26 +673,45 @@ class LarkMessager(_PluginBase):
         Lark事件回调端点
         处理：
         1. 签名校验（如配置了 app_secret）
-        2. URL 验证（event_type = url_verification）
+        2. URL 验证（type = url_verification / body 含 challenge）
+           - 明文模式：body = {"challenge": "...", "token": "...", "type": "url_verification"}
+           - 加密模式：body = {"encrypt": "base64..."} 解密后才有 challenge 字段
+           因此 challenge 检查必须放在解密之后
         3. 消息接收（im.message.receive_v1）
         4. 卡片按钮回调（card.action.trigger）
         """
         # —— 获取原始请求体（只能读一次） —— #
         raw_body = await request.body()
 
-        # —— 签名校验（如配置了 app_secret） —— #
-        if self._app_secret and self._crypto:
+        # —— 惰性初始化 crypto（解决多 worker 实例不一致问题） —— #
+        # MoviePilot 用 gunicorn 多 worker，文件变化重载可能只在一个 worker 触发，
+        # 其他 worker 的插件实例可能没跑 init_plugin，_crypto 是 None。
+        # 这里按需初始化，确保所有 worker 都能用。
+        if self._encrypt_key and not self._crypto:
+            self._crypto = LarkCrypto(self._encrypt_key, self._app_secret)
+            logger.info("LarkMessager: webhook 惰性初始化 crypto（多 worker 兜底）")
+
+        # —— 签名校验（如配置了 encrypt_key，Lark 会自动启用签名） —— #
+        # 注意：Lark 签名用 encrypt_key 计算，不是 app_secret
+        # 签名头：X-Lark-Signature（hex）
+        # 时间戳头：X-Lark-Request-Timestamp
+        # 随机数头：X-Lark-Request-Nonce
+        if self._encrypt_key and self._crypto:
             signature = request.headers.get("X-Lark-Signature", "")
+            timestamp = request.headers.get("X-Lark-Request-Timestamp", "")
+            nonce = request.headers.get("X-Lark-Request-Nonce", "")
             if not signature:
                 logger.warning(
-                    "缺少 X-Lark-Signature 头，请在 Lark 应用后台开启事件签名校验"
+                    "缺少 X-Lark-Signature 头（开启 Encrypt Key 后 Lark 会自动签名，必须校验）"
                 )
-            else:
-                if not self._crypto.verify_signature(signature, raw_body):
-                    logger.warning("X-Lark-Signature 校验失败")
-                    return JSONResponse(
-                        {"error": "signature verification failed"}, status_code=403
-                    )
+                return JSONResponse(
+                    {"error": "missing signature"}, status_code=403
+                )
+            if not self._crypto.verify_signature(signature, raw_body, timestamp, nonce):
+                logger.warning("X-Lark-Signature 校验失败")
+                return JSONResponse(
+                    {"error": "signature verification failed"}, status_code=403
+                )
 
         # —— 解析请求体 —— #
         try:
@@ -682,15 +729,25 @@ class LarkMessager(_PluginBase):
             else:
                 return JSONResponse({"error": "invalid body"}, status_code=400)
 
-        # —— URL 验证 —— #
-        if "challenge" in body:
-            challenge = body["challenge"]
-            logger.info("Lark URL 验证请求，返回 challenge")
-            return JSONResponse({"challenge": challenge})
-
-        # —— 消息解密（加密模式） —— #
-        encrypt_data = body.get("encrypt")
-        if encrypt_data and self._crypto:
+        # —— 消息解密（加密模式：body 是 {"encrypt": "base64..."}） —— #
+        # 注意：这一步必须在 challenge 检查之前，否则加密模式下的 URL 验证
+        # 请求 body 里只有 encrypt 字段没有 challenge，会被漏掉
+        encrypt_data = body.get("encrypt") if isinstance(body, dict) else None
+        if encrypt_data:
+            if not self._crypto:
+                # Lark 后台开了 Encrypt Key 但插件没配 → 提示用户去填
+                logger.error(
+                    "收到加密请求但插件未配置 Encrypt Key，"
+                    "请到 Lark 开放平台 > 事件与回调 > 加密策略 复制 Encrypt Key，"
+                    "填到插件配置的 Encrypt Key 字段"
+                )
+                return JSONResponse(
+                    {
+                        "error": "encrypt_key not configured",
+                        "hint": "请在插件配置中填写 Encrypt Key，并与 Lark 后台保持一致",
+                    },
+                    status_code=400,
+                )
             try:
                 plaintext = self._crypto.decrypt(encrypt_data)
                 body = json.loads(plaintext)
@@ -698,19 +755,41 @@ class LarkMessager(_PluginBase):
                 logger.error("Webhook encrypt 字段解密失败：%s", e)
                 return JSONResponse({"error": "decrypt failed"}, status_code=400)
 
-        # —— 构造事件对象 —— #
-        event = LarkWebhookEvent(**body)
-        event_type = event.event_type
-
         # —— Token 校验（如配置了 verification_token） —— #
-        # Lark也在 query 参数中传 token（部分版本）
+        # Lark 把 verification_token 放在请求体里，不是 query 参数：
+        # - v1.0 schema：body 顶层 {"token": "...", "challenge": "...", "type": "url_verification"}
+        # - v2.0 schema：body.header.token
+        # query 参数兜底（极少版本会用）
         if self._verification_token:
+            body_token = ""
+            if isinstance(body, dict):
+                body_token = body.get("token", "") or (
+                    (body.get("header") or {}).get("token", "")
+                )
             query_token = request.query_params.get("token", "")
-            if query_token != self._verification_token:
-                logger.warning("Webhook token 校验失败")
+            req_token = body_token or query_token
+            if req_token != self._verification_token:
+                logger.warning(
+                    "Webhook token 校验失败：req_token=%s, configured=%s",
+                    req_token[:8] + "..." if req_token else "(empty)",
+                    self._verification_token[:8] + "...",
+                )
                 return JSONResponse(
                     {"error": "token verification failed"}, status_code=403
                 )
+
+        # —— URL 验证（必须在解密之后、token 校验之后检查） —— #
+        # Lark URL 验证请求 body：
+        #   {"challenge": "...", "token": "...", "type": "url_verification"}
+        # 加密模式下这个 payload 被包在 encrypt 字段里，需先解密
+        if isinstance(body, dict) and "challenge" in body:
+            challenge = body["challenge"]
+            logger.info("Lark URL 验证请求，返回 challenge")
+            return JSONResponse({"challenge": challenge})
+
+        # —— 构造事件对象 —— #
+        event = LarkWebhookEvent(**body)
+        event_type = event.event_type
 
         # —— 处理消息接收事件 —— #
         if event_type == "im.message.receive_v1":
@@ -725,47 +804,64 @@ class LarkMessager(_PluginBase):
     async def _handle_message_receive(self, event: LarkWebhookEvent):
         """处理用户发消息给机器人的事件"""
         evt = event.event or {}
-        message = evt.get("message", {})
-        sender = evt.get("sender", {})
-        # 构造 CommingMessage 并发送 UserMessage 事件
-        user_msg = LarkUserMessage(
-            message_id=message.get("message_id", ""),
-            chat_id=message.get("chat_id", ""),
-            chat_type=message.get("chat_type", ""),
-            sender_id=sender.get("sender_id", ""),
-            sender_type=sender.get("sender_type", ""),
-            create_time=message.get("create_time", 0),
-            msg_type=message.get("msg_type", ""),
-            text=message.get("text", ""),
-            content=message.get("content", {}),
-        )
+        message = evt.get("message", {}) or {}
+        sender = evt.get("sender", {}) or {}
+
+        # Lark 事件结构：
+        #   sender.sender_id = {"open_id": "ou_xxx", "user_id": "...", "union_id": "..."}
+        #   message.content = '{"text":"1"}' （JSON 字符串，不是 dict）
+        #   message_id/chat_id/chat_type/create_time/msg_type 是标量
+        sender_id_obj = sender.get("sender_id", {}) or {}
+        sender_id = (
+            sender_id_obj.get("open_id")
+            or sender_id_obj.get("user_id")
+            or sender_id_obj.get("union_id")
+            or ""
+        ) if isinstance(sender_id_obj, dict) else str(sender_id_obj)
+
+        content_raw = message.get("content", {})
+        if isinstance(content_raw, str):
+            try:
+                content = json.loads(content_raw)
+            except Exception:
+                content = {"raw": content_raw}
+        else:
+            content = content_raw or {}
+
+        # 文本提取：content.text 优先，否则从 message.content 解析
+        text = content.get("text", "") if isinstance(content, dict) else ""
+
         # 发送到 MoviePilot 消息系统
+        # 注意：MoviePilot 的 send_event 第一个参数是 EventType 枚举，不是 Event 实例
+        # 写成 send_event(Event(...)) 会导致 isinstance 判断失败，报 Unknown event type
         from app.schemas import CommingMessage, MessageChannel
         from app.schemas.types import MediaType
 
         # 优先使用 sender name，没有则使用 sender_id
-        sender_name = sender.get("name", "") or sender.get("sender_id", "Unknown")
+        sender_name = sender.get("name", "") or sender_id or "Unknown"
 
         comming = CommingMessage(
             channel=MessageChannel.Feishu,
-            text=user_msg.text or json.dumps(user_msg.content, ensure_ascii=False),
-            user_id=user_msg.sender_id,
+            text=text or json.dumps(content, ensure_ascii=False),
+            user_id=sender_id,
             username=sender_name,
-            msg_id=user_msg.message_id,
+            msg_id=message.get("message_id", ""),
             pic_url="",
             media_list=[],
             from_user=True,
         )
         eventmanager.send_event(
-            Event(
-                EventType.UserMessage,
-                {
-                    "channel": "Lark",
-                    "comming_message": comming,
-                },
-            )
+            EventType.UserMessage,
+            {
+                "channel": "Lark",
+                "comming_message": comming,
+            },
         )
-        logger.info("已转发Lark消息到 UserMessage 事件：%s", user_msg.text[:50])
+        logger.info(
+            "已转发 Lark 消息到 UserMessage 事件：sender=%s, text=%s",
+            sender_id or "(unknown)",
+            (text or "")[:50],
+        )
 
     async def _handle_card_action(self, event: LarkWebhookEvent):
         """处理卡片按钮回调事件"""
@@ -811,12 +907,16 @@ class LarkMessager(_PluginBase):
         Vuetify 模式下前端 commonAction 不显示返回值，只触发 get_page 重渲染。
         每次 result 带 time 时间戳，让 get_page 返回的 VAlert text 每次不同，
         避免 Vue v-for(:key=index) 因内容相同跳过 patch 导致「第二次点击不刷新」。
+
+        displayed 标志：/test 写入 False，get_page() 显示一次后改 True 保存。
+        这样每次打开插件对话框不会看到上次的旧测试结果，只有点击测试后才显示一次。
         """
         def _store(ok: bool, msg: str) -> dict:
             result = {
                 "ok": ok,
                 "msg": msg,
                 "time": time.strftime("%Y-%m-%d %H:%M:%S"),
+                "displayed": False,  # 新写入的测试结果尚未被 get_page 展示过
             }
             self.save_data("last_test_result", result)
             return result

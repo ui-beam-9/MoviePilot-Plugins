@@ -4,16 +4,14 @@ Lark开放平台 API 文档：https://open.larksuite.com/document/server-docs
 """
 import time
 import json
-import logging
 from pathlib import Path
 from typing import Optional, Dict, Any, List, Tuple
 
 import requests
 
+from app.log import logger
 from .schemas import LarkInteractiveCard, LarkCardHeader, LarkCardElement
 
-
-logger = logging.getLogger(__name__)
 
 # Lark开放平台 API 地址
 API_BASE = "https://open.larksuite.com/open-apis"
