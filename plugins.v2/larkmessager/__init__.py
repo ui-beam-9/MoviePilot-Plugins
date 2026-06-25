@@ -22,6 +22,9 @@ from .client import LarkClient
 from .crypto import LarkCrypto
 from .schemas import LarkWebhookEvent, LarkUserMessage, LarkButtonAction
 
+# 复用 client 模块的 API_BASE
+from .client import API_BASE
+
 
 # 插件图标（放在 icons/ 目录，package.v2.json 引用）
 
@@ -358,50 +361,6 @@ class LarkMessager(_PluginBase):
                             },
                         ],
                     },
-                    # —— Webhook 地址提示 —— #
-                    {
-                        "component": "VRow",
-                        "content": [
-                            {
-                                "component": "VCol",
-                                "props": {"cols": 12},
-                                "content": [
-                                    {
-                                        "component": "VAlert",
-                                        "props": {
-                                            "type": "info",
-                                            "variant": "tonal",
-                                            "text": "Webhook 地址（填入 Lark 开放平台 > 事件订阅 > 请求网址）：\n/api/v1/plugin/LarkMessager/webhook",
-                                        },
-                                    }
-                                ],
-                            }
-                        ],
-                    },
-                    # —— 使用说明 —— #
-                    {
-                        "component": "VRow",
-                        "content": [
-                            {
-                                "component": "VCol",
-                                "props": {"cols": 12},
-                                "content": [
-                                    {
-                                        "component": "VAlert",
-                                        "props": {
-                                            "type": "warning",
-                                            "variant": "tonal",
-                                            "text": "配置步骤：\n"
-                                            "1. 在 Lark 开放平台创建自建应用，获取 App ID 和 App Secret\n"
-                                            "2. 开启「事件订阅」，将 Webhook 地址填入请求网址\n"
-                                            "3. 订阅事件：im.message.receive_v1（接收消息）、card.action.trigger（按钮回调）\n"
-                                            "4. 添加机器人到目标群聊或获取用户 Open ID",
-                                        },
-                                    }
-                                ],
-                            }
-                        ],
-                    },
                 ],
             }
         ], {
@@ -420,11 +379,200 @@ class LarkMessager(_PluginBase):
     #  详情页
     # ------------------------------------------------------------------ #
     def get_page(self) -> List[dict]:
-        """返回插件详情页（运行状态、Webhook 地址、操作按钮、测试结果反馈）"""
+        """返回插件详情页（运行状态、使用指南、操作按钮、测试结果反馈）"""
         status_text = "已启用" if self._enabled and self._client else "未启用或配置不完整"
         status_color = "success" if self._enabled and self._client else "warning"
         status_icon = "mdi-check-circle" if self._enabled and self._client else "mdi-alert-circle"
 
+        # —— 使用指南（仿 OIDC 插件风格，紧贴「操作」标题上方） —— #
+        guide_url = (
+            "https://raw.githubusercontent.com/ui-beam-9/"
+            "MoviePilot-Plugins/refs/heads/main/plugins.v2/larkmessager/SETUP.md"
+        )
+        webhook_path = "/api/v1/plugin/LarkMessager/webhook"
+        guide_card = {
+            "component": "VCard",
+            "props": {"class": "mb-4"},
+            "content": [
+                {
+                    "component": "VCardText",
+                    "content": [
+                        {
+                            "component": "div",
+                            "props": {"class": "d-flex align-center mb-3"},
+                            "content": [
+                                {
+                                    "component": "VIcon",
+                                    "props": {
+                                        "color": "primary",
+                                        "size": "small",
+                                        "class": "mr-2",
+                                    },
+                                    "text": "mdi-information-outline",
+                                },
+                                {
+                                    "component": "span",
+                                    "props": {
+                                        "class": "text-subtitle-1 font-weight-bold",
+                                    },
+                                    "text": "使用指南",
+                                },
+                            ],
+                        },
+                        # 步骤 1
+                        {
+                            "component": "div",
+                            "props": {"class": "mb-2"},
+                            "content": [
+                                {
+                                    "component": "span",
+                                    "text": "1. 在 ",
+                                },
+                                {
+                                    "component": "strong",
+                                    "text": "Lark 开放平台",
+                                },
+                                {
+                                    "component": "span",
+                                    "text": " 创建自建应用，获取 ",
+                                },
+                                {
+                                    "component": "strong",
+                                    "text": "App ID",
+                                },
+                                {
+                                    "component": "span",
+                                    "text": " 和 ",
+                                },
+                                {
+                                    "component": "strong",
+                                    "text": "App Secret",
+                                },
+                                {
+                                    "component": "span",
+                                    "text": "。",
+                                },
+                            ],
+                        },
+                        # 步骤 2：事件订阅 URL（用 location.origin 拼成完整 URL，参考 webhook 卡片样式）
+                        {
+                            "component": "div",
+                            "props": {"class": "mb-2"},
+                            "content": [
+                                {
+                                    "component": "span",
+                                    "text": "2. 配置事件订阅，将请求地址设置为：",
+                                },
+                            ],
+                        },
+                        {
+                            "component": "div",
+                            "props": {
+                                "class": "ml-4 mb-2",
+                            },
+                            "content": [
+                                {
+                                    "component": "span",
+                                    "text": "{{location.origin + '" + webhook_path + "'}}",
+                                },
+                            ],
+                        },
+                        # 步骤 3
+                        {
+                            "component": "div",
+                            "props": {"class": "mb-2"},
+                            "content": [
+                                {
+                                    "component": "span",
+                                    "text": "3. （推荐）开启加密策略，复制 ",
+                                },
+                                {
+                                    "component": "strong",
+                                    "text": "Encrypt Key",
+                                },
+                                {
+                                    "component": "span",
+                                    "text": " 和 ",
+                                },
+                                {
+                                    "component": "strong",
+                                    "text": "Verification Token",
+                                },
+                                {
+                                    "component": "span",
+                                    "text": " 填入插件配置。",
+                                },
+                            ],
+                        },
+                        # 步骤 4：找 Open ID / Chat ID
+                        {
+                            "component": "div",
+                            "props": {"class": "mb-2"},
+                            "content": [
+                                {
+                                    "component": "span",
+                                    "text": "4. 在下方「操作」区点击 ",
+                                },
+                                {
+                                    "component": "strong",
+                                    "text": "「获取用户 Open ID」",
+                                },
+                                {
+                                    "component": "span",
+                                    "text": " 或 ",
+                                },
+                                {
+                                    "component": "strong",
+                                    "text": "「获取群聊 Chat ID」",
+                                },
+                                {
+                                    "component": "span",
+                                    "text": " 按钮查询（需先填写 App ID 和 App Secret 并保存）。",
+                                },
+                            ],
+                        },
+                        # 步骤 5
+                        {
+                            "component": "div",
+                            "props": {"class": "mb-2"},
+                            "content": [
+                                {
+                                    "component": "span",
+                                    "text": "5. 发布应用版本，保存插件配置后点击 ",
+                                },
+                                {
+                                    "component": "strong",
+                                    "text": "发送测试消息",
+                                },
+                                {
+                                    "component": "span",
+                                    "text": " 验证连通性。",
+                                },
+                            ],
+                        },
+                        # 详细文档链接
+                        {
+                            "component": "div",
+                            "props": {"class": "mt-3"},
+                            "content": [
+                                {
+                                    "component": "VBtn",
+                                    "props": {
+                                        "variant": "text",
+                                        "color": "primary",
+                                        "size": "small",
+                                        "target": "_blank",
+                                        "href": guide_url,
+                                        "prependIcon": "mdi-book-open-page-variant-outline",
+                                    },
+                                    "text": "查看完整配置流程",
+                                },
+                            ],
+                        },
+                    ],
+                },
+            ],
+        }
         components = [
             # —— 状态卡片 —— #
             {
@@ -461,42 +609,8 @@ class LarkMessager(_PluginBase):
                     },
                 ],
             },
-            # —— Webhook 地址卡片 —— #
-            {
-                "component": "VCard",
-                "props": {"class": "mb-4"},
-                "content": [
-                    {
-                        "component": "VCardTitle",
-                        "text": "Webhook 地址",
-                    },
-                    {
-                        "component": "VCardText",
-                        "content": [
-                            {
-                                "component": "VAlert",
-                                "props": {
-                                    "type": "info",
-                                    "variant": "tonal",
-                                    "density": "compact",
-                                },
-                                "text": "填到 Lark 开放平台 > 事件订阅 > 请求网址",
-                            },
-                            {
-                                "component": "VTextField",
-                                "props": {
-                                    "modelValue": "/api/v1/plugin/LarkMessager/webhook",
-                                    "readonly": True,
-                                    "variant": "outlined",
-                                    "density": "compact",
-                                    "prependInnerIcon": "mdi-link-variant",
-                                    "hideDetails": True,
-                                },
-                            },
-                        ],
-                    },
-                ],
-            },
+            # —— 使用指南（紧贴「操作」上方） —— #
+            guide_card,
             # —— 操作按钮 —— #
             {
                 "component": "VCard",
@@ -560,6 +674,54 @@ class LarkMessager(_PluginBase):
                                             }
                                         ],
                                     },
+                                    {
+                                        "component": "VCol",
+                                        "props": {"cols": 12, "md": 6},
+                                        "content": [
+                                            {
+                                                "component": "VBtn",
+                                                "props": {
+                                                    "color": "info",
+                                                    "variant": "tonal",
+                                                    "block": True,
+                                                    "prependIcon": "mdi-account-search",
+                                                    "size": "large",
+                                                },
+                                                "text": "获取用户 Open ID",
+                                                "events": {
+                                                    "click": {
+                                                        "api": "plugin/LarkMessager/known_users",
+                                                        "method": "GET",
+                                                        "params": {},
+                                                    }
+                                                },
+                                            }
+                                        ],
+                                    },
+                                    {
+                                        "component": "VCol",
+                                        "props": {"cols": 12, "md": 6},
+                                        "content": [
+                                            {
+                                                "component": "VBtn",
+                                                "props": {
+                                                    "color": "info",
+                                                    "variant": "tonal",
+                                                    "block": True,
+                                                    "prependIcon": "mdi-forum",
+                                                    "size": "large",
+                                                },
+                                                "text": "获取群聊 Chat ID",
+                                                "events": {
+                                                    "click": {
+                                                        "api": "plugin/LarkMessager/fetch_chats",
+                                                        "method": "GET",
+                                                        "params": {},
+                                                    }
+                                                },
+                                            }
+                                        ],
+                                    },
                                 ],
                             },
                             # —— 按钮说明 —— #
@@ -571,7 +733,13 @@ class LarkMessager(_PluginBase):
                                     "density": "compact",
                                     "icon": "mdi-information-outline",
                                 },
-                                "text": "点击「发送测试消息」将在 Lark 中收到一条测试卡片；点击「刷新状态」将更新上方状态信息。",
+                                "text": (
+                                    "「发送测试消息」将在 Lark 中收到一条测试卡片；"
+                                    "「刷新状态」将更新上方状态信息；"
+                                    "「获取用户 Open ID」列出历史上给本应用发过消息的用户；"
+                                    "「获取群聊 Chat ID」调 Lark API 列出本应用已加入的群聊"
+                                    "（需先填写 App ID 和 App Secret 并保存）。"
+                                ),
                             },
                         ],
                     },
@@ -620,6 +788,88 @@ class LarkMessager(_PluginBase):
             last_result["displayed"] = True
             self.save_data("last_test_result", last_result)
 
+        # —— 用户 ID 查询结果（/known_users 写入） —— #
+        last_users = self.get_data("last_known_users")
+        if last_users and not last_users.get("displayed", True):
+            users_ok = last_users.get("ok", False)
+            users_msg = last_users.get("msg", "")
+            users_time = last_users.get("time", "")
+            users_alert_text = (
+                users_msg if not users_time else f"{users_msg}\n更新时间：{users_time}"
+            )
+            components.append({
+                "component": "VCard",
+                "props": {"class": "mb-4"},
+                "content": [
+                    {
+                        "component": "VCardTitle",
+                        "props": {
+                            "prependIcon": "mdi-account-multiple",
+                        },
+                        "text": "用户 Open ID（历史上给本应用发过消息的用户）",
+                    },
+                    {
+                        "component": "VCardText",
+                        "content": [
+                            {
+                                "component": "VAlert",
+                                "props": {
+                                    "type": "success" if users_ok else "warning",
+                                    "variant": "tonal",
+                                    "density": "compact",
+                                    "icon": "mdi-account-multiple"
+                                    if users_ok else "mdi-alert-circle",
+                                },
+                                "text": users_alert_text,
+                            }
+                        ],
+                    },
+                ],
+            })
+            last_users["displayed"] = True
+            self.save_data("last_known_users", last_users)
+
+        # —— 群聊 ID 查询结果（/fetch_chats 写入） —— #
+        last_chats = self.get_data("last_chats")
+        if last_chats and not last_chats.get("displayed", True):
+            chats_ok = last_chats.get("ok", False)
+            chats_msg = last_chats.get("msg", "")
+            chats_time = last_chats.get("time", "")
+            chats_alert_text = (
+                chats_msg if not chats_time else f"{chats_msg}\n更新时间：{chats_time}"
+            )
+            components.append({
+                "component": "VCard",
+                "props": {"class": "mb-4"},
+                "content": [
+                    {
+                        "component": "VCardTitle",
+                        "props": {
+                            "prependIcon": "mdi-forum",
+                        },
+                        "text": "群聊 Chat ID（本应用已加入的群聊）",
+                    },
+                    {
+                        "component": "VCardText",
+                        "content": [
+                            {
+                                "component": "VAlert",
+                                "props": {
+                                    "type": "success" if chats_ok else "warning",
+                                    "variant": "tonal",
+                                    "density": "compact",
+                                    "icon": "mdi-forum"
+                                    if chats_ok else "mdi-alert-circle",
+                                },
+                                "text": chats_alert_text,
+                            }
+                        ],
+                    },
+                ],
+            })
+            last_chats["displayed"] = True
+            self.save_data("last_chats", last_chats)
+
         return components
 
     # ------------------------------------------------------------------ #
@@ -662,6 +912,22 @@ class LarkMessager(_PluginBase):
                 "auth": "bear",
                 "summary": "查询插件运行状态",
                 "description": "返回当前插件启用状态、App ID、连接状态等。",
+            },
+            {
+                "path": "/known_users",
+                "endpoint": self._known_users_endpoint,
+                "methods": ["GET"],
+                "auth": "bear",
+                "summary": "查询历史上给应用发过消息的用户 Open ID",
+                "description": "返回历史上跟本应用交互过的用户列表（Open ID + 名字）。",
+            },
+            {
+                "path": "/fetch_chats",
+                "endpoint": self._fetch_chats_endpoint,
+                "methods": ["GET"],
+                "auth": "bear",
+                "summary": "调 Lark API 列出本应用已加入的群聊",
+                "description": "返回群聊列表（Chat ID + 名字）。需要已配置 App ID / App Secret。",
             },
         ]
 
@@ -909,6 +1175,25 @@ class LarkMessager(_PluginBase):
         # 优先使用 sender name，没有则使用 sender_id
         sender_name = sender.get("name", "") or sender_id or "Unknown"
 
+        # 累积 known_users（用于「获取用户 Open ID」按钮查询）
+        # 用 save_data 跨 worker 共享，最多保留 100 条避免无限增长
+        if sender_id:
+            try:
+                users = self.get_data("known_users") or []
+                # 避免重复
+                if not any(u.get("open_id") == sender_id for u in users):
+                    users.append({
+                        "open_id": sender_id,
+                        "name": sender.get("name", ""),
+                        "email": sender.get("email", ""),
+                        "time": time.strftime("%Y-%m-%d %H:%M:%S"),
+                    })
+                    # 限制最大条数
+                    users = users[-100:]
+                    self.save_data("known_users", users)
+            except Exception as e:
+                logger.warning("累积 known_users 失败：%s", e)
+
         comming = CommingMessage(
             channel=MessageChannel.Feishu,
             text=text or json.dumps(content, ensure_ascii=False),
@@ -1026,6 +1311,8 @@ class LarkMessager(_PluginBase):
     def _status_endpoint(self, request: Request) -> JSONResponse:
         """返回插件运行状态"""
         self.del_data("last_test_result")  # 刷新状态时清空旧的测试结果反馈
+        self.del_data("last_known_users")  # 清空用户 ID 查询结果
+        self.del_data("last_chats")        # 清空群聊 ID 查询结果
         return JSONResponse(
             {
                 "enabled": self._enabled,
@@ -1035,9 +1322,120 @@ class LarkMessager(_PluginBase):
                 "admin_count": len(self._admin_users),
                 "open_id": self._open_id[:8] + "..." if self._open_id else "",
                 "chat_id": self._chat_id[:8] + "..." if self._chat_id else "",
-                "webhook_url": "/api/v1/plugin/LarkMessager/webhook",
             }
         )
+
+    # ------------------------------------------------------------------ #
+    #  /known_users 端点：返回历史上跟本应用交互过的用户 Open ID
+    # ------------------------------------------------------------------ #
+    def _known_users_endpoint(self, request: Request) -> JSONResponse:
+        """
+        返回历史上给本应用发过消息的用户列表（Open ID + 名字/邮箱，如果有）
+        数据从 self.get_data("known_users") 读取（_handle_im_message 收到消息时累积）。
+        """
+        users = self.get_data("known_users") or []
+        # 去重（按 open_id）
+        seen = set()
+        uniq = []
+        for u in users:
+            oid = u.get("open_id", "")
+            if oid and oid not in seen:
+                seen.add(oid)
+                uniq.append(u)
+        if not uniq:
+            result = {
+                "ok": False,
+                "msg": "暂无数据。请先在 Lark 中给本应用发任意一条消息，"
+                       "插件收到后会记录其 Open ID。",
+                "users": [],
+            }
+        else:
+            # 拼成易读文本
+            lines = [f"- {u.get('name', '(未知)')} ({u.get('open_id', '')})"
+                     + (f" <{u.get('email', '')}>" if u.get('email') else "")
+                     for u in uniq]
+            result = {
+                "ok": True,
+                "msg": f"共 {len(uniq)} 个用户：\n" + "\n".join(lines),
+                "users": uniq,
+            }
+        # 持久化（跨 worker 共享）+ 未展示标志（避免下次 get_page 重复渲染）
+        import datetime
+        result["time"] = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        result["displayed"] = False
+        self.save_data("last_known_users", result)
+        return JSONResponse(result)
+
+    # ------------------------------------------------------------------ #
+    #  /fetch_chats 端点：调 Lark 官方 API 列出本应用已加入的群聊
+    # ------------------------------------------------------------------ #
+    def _fetch_chats_endpoint(self, request: Request) -> JSONResponse:
+        """
+        列出当前应用已加入的群聊（oc_xxx Chat ID + 名字）。
+        调 Lark 官方 API: GET /im/v1/chats?user_id_type=open_id
+        必输项：App ID、App Secret（用已保存的 self._app_id / self._app_secret）
+        """
+        # 必输项校验
+        if not self._app_id or not self._app_secret:
+            result = {
+                "ok": False,
+                "msg": "请先在插件配置中填写 App ID 和 App Secret 并保存。",
+                "chats": [],
+            }
+        else:
+            try:
+                client = LarkClient(self._app_id, self._app_secret)
+                url = f"{API_BASE}/im/v1/chats"
+                params = {"user_id_type": "open_id", "page_size": 100}
+                resp = requests.get(
+                    url, headers=client._headers(), params=params, timeout=10,
+                )
+                data = resp.json()
+                if data.get("code") != 0:
+                    result = {
+                        "ok": False,
+                        "msg": f"Lark API 错误：{data.get('msg')}（code={data.get('code')}）",
+                        "chats": [],
+                    }
+                else:
+                    items = (data.get("data") or {}).get("items") or []
+                    chats = [
+                        {
+                            "chat_id": it.get("chat_id", ""),
+                            "name": it.get("name", "(未命名)"),
+                            "description": it.get("description", ""),
+                        }
+                        for it in items
+                    ]
+                    if not chats:
+                        result = {
+                            "ok": False,
+                            "msg": "Lark 返回空列表。请确认：本应用已被添加为目标群聊的机器人。",
+                            "chats": [],
+                        }
+                    else:
+                        lines = [f"- {c['name']} ({c['chat_id']})"
+                                 + (f"\n  {c['description']}" if c.get('description') else "")
+                                 for c in chats]
+                        result = {
+                            "ok": True,
+                            "msg": f"共 {len(chats)} 个群聊：\n" + "\n".join(lines),
+                            "chats": chats,
+                        }
+            except Exception as e:
+                logger.error("LarkMessager fetch_chats 失败：%s", e)
+                result = {
+                    "ok": False,
+                    "msg": f"请求失败：{e}",
+                    "chats": [],
+                }
+
+        # 持久化（跨 worker 共享）+ 未展示标志
+        import datetime
+        result["time"] = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        result["displayed"] = False
+        self.save_data("last_chats", result)
+        return JSONResponse(result)
 
     # ------------------------------------------------------------------ #
     #  远程命令

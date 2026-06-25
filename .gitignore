@@ -167,3 +167,5 @@ plugins.v2/oidcauth/node_modules/
 plugins.v2/oidcauth/dist/
 
 agents_chat/
+DESIGN.md
+tasks.md
