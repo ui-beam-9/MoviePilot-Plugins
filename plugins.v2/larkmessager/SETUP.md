@@ -99,14 +99,18 @@ http(s)://<你的MoviePilot地址>/api/v1/plugin/LarkMessager/webhook
 |------|----------|
 | **App ID** | 第一步复制的 App ID |
 | **App Secret** | 第一步复制的 App Secret |
-| **Open ID** | （可选）默认接收通知的用户 Open ID |
-| **Chat ID** | （可选）默认接收通知的群聊 Chat ID |
+| **默认通知用户** | （可选）填邮箱、工号或 Open ID（`ou_xxx`），留空则不发送私信。**使用邮箱/工号需开通 `contact:user.id:readonly` 权限**（见常见问题） |
+| **默认通知群聊** | （可选）填群聊 Chat ID（`oc_xxx`），留空则不发送群通知 |
 | **Verification Token** | 第二步的 Verification Token |
 | **Encrypt Key** | 第二步的 Encrypt Key（强烈建议填写） |
-| **Admin Users** | 管理员 Open ID 列表，逗号分隔 |
+| **管理员用户** | （可选）允许执行命令和管理操作的用户，填邮箱、手机号或 Open ID（`ou_xxx`），多个用 `,` 分隔。使用邮箱/手机号需开通 `contact:user.id:readonly` 权限（见常见问题） |
 | **开关** | 选择哪些场景触发通知（留空=全部） |
 
 保存设置后，状态应显示为「已启用」。
+
+> **提示**：如果不想开通 `contact:user.id:readonly` 权限，可以直接填用户的 Open ID（`ou_xxx`）。获取 Open ID 的方法：
+> 1. 在 Lark 开放平台 > 事件与回调 > 事件订阅 里，点击「获取已加入的群聊」按钮
+> 2. 或者在 Lark 管理后台查看用户详情页的 Open ID
 
 ---
 
@@ -136,6 +140,17 @@ http(s)://<你的MoviePilot地址>/api/v1/plugin/LarkMessager/webhook
 
 - 如果配置了 Encrypt Key 但 Lark 请求不带签名头：这是 Lark 国际版的已知行为，插件已做兼容处理
 - 确保已重启 MoviePilot 让最新代码生效（文件热重载可能不够）
+
+### Q: 报错"收件人解析失败：缺少权限 contact:user.id:readonly"（code=99991672）
+
+使用了「收件人（邮箱/手机号/工号）」字段时，需要 Lark 应用具备「通过手机号或邮箱获取用户 ID」权限：
+
+1. Lark 开放平台 → 你的应用 → **「权限管理」**
+2. 搜索并开通 `contact:user.id:readonly`（通过手机号或邮箱获取用户 ID）
+3. 进入 **「版本管理与发布」**，创建并发布新版本（**权限变更必须重新发布才生效**）
+4. 回到 MoviePilot 重新点「发送测试消息」
+
+> 不使用邮箱/工号收件人（只用群聊 Chat ID）则无需此权限。
 
 ---
 

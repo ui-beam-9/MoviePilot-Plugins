@@ -55,9 +55,11 @@ class LarkMessager(_PluginBase):
     _app_id: str = ""
     _app_secret: str = ""
     _chat_id: str = ""  # 默认群聊 Chat ID
+    _user_id: str = ""  # 默认用户 Open ID（优先级低于 chat_id，两者都配则都发）
     _verification_token: str = ""  # 事件订阅 Verification Token
     _encrypt_key: str = ""  # 消息加解密密钥（可选）
-    _admin_users: List[str] = []  # 管理员 open_id 列表
+    _admin_users: List[str] = []  # 管理员标识列表（Open ID / 邮箱 / 工号）
+    _admin_users_resolved: dict = {}  # 管理员标识解析缓存：{identifier: open_id}
     _config_missing: List[str] = []  # 必填项缺失列表（用于详情页提示）
     _switchs: List[str] = []  # 通知场景类型（为空则全部发送）
 
@@ -76,14 +78,13 @@ class LarkMessager(_PluginBase):
         self._app_id = (config.get("app_id") or "").strip()
         self._app_secret = (config.get("app_secret") or "").strip()
         self._chat_id = (config.get("chat_id") or "").strip()
+        self._user_id = (config.get("user_id") or "").strip()
         self._verification_token = (config.get("verification_token") or "").strip()
         self._encrypt_key = (config.get("encrypt_key") or "").strip()
         self._admin_users = [
             u.strip() for u in (config.get("admin_users") or "").split(",") if u.strip()
         ]
-        self._test_recipients = [
-            u.strip() for u in (config.get("test_recipients") or "").replace("\n", ",").split(",") if u.strip()
-        ]
+        self._admin_users_resolved = {}  # 清空解析缓存
         self._switchs = config.get("switchs") or []
 
         # 必填项校验：保存时如果缺关键配置，自动降级为 disabled（不阻断保存）
@@ -153,11 +154,11 @@ class LarkMessager(_PluginBase):
         - enabled             是否启用
         - app_id              Lark 应用 App ID
         - app_secret          Lark 应用 App Secret
-        - chat_id             默认群聊 Chat ID
+        - user_id             默认用户 Open ID（ou_xxx，可选）
+        - chat_id             默认群聊 Chat ID（oc_xxx，可选）
         - verification_token  Verification Token（事件订阅校验）
         - encrypt_key         Encrypt Key（消息加密，可选）
         - admin_users         管理员 open_id 列表（逗号分隔）
-        - test_recipients     测试收件人（邮箱/工号，逗号分隔）
         - switchs             通知场景类型（多选，不选则全部发送）
         """
         return [
@@ -233,7 +234,7 @@ class LarkMessager(_PluginBase):
                             },
                         ],
                     },
-                    # —— 第三行：默认群聊 Chat ID —— #
+                    # —— 第三行：默认通知用户 + 默认通知群聊 —— #
                     {
                         "component": "VRow",
                         "content": [
@@ -244,11 +245,11 @@ class LarkMessager(_PluginBase):
                                     {
                                         "component": "VTextField",
                                         "props": {
-                                            "model": "chat_id",
-                                            "label": "默认群聊 Chat ID",
-                                            "placeholder": "oc_xxx",
+                                            "model": "user_id",
+                                            "label": "默认通知用户",
+                                            "placeholder": "邮箱/工号/ou_xxx",
                                             "variant": "outlined",
-                                            "hint": "默认通知接收群聊的 Chat ID，留空则不发送群通知",
+                                            "hint": "填邮箱、手机号或 Open ID（ou_xxx），留空则不发送私信。用邮箱/手机号需开通 contact:user.id:readonly 权限",
                                             "persistentHint": True,
                                             "clearable": True,
                                             "density": "comfortable",
@@ -256,33 +257,18 @@ class LarkMessager(_PluginBase):
                                     }
                                 ],
                             },
-                        ],
-                    },
-                    # —— 第三行半：测试消息额外收件人（邮箱/工号） —— #
-                    {
-                        "component": "VRow",
-                        "content": [
                             {
                                 "component": "VCol",
-                                "props": {"cols": 12},
+                                "props": {"cols": 12, "md": 6},
                                 "content": [
                                     {
-                                        "component": "VTextarea",
+                                        "component": "VTextField",
                                         "props": {
-                                            "model": "test_recipients",
-                                            "label": "测试消息额外收件人（可选）",
-                                            "placeholder": (
-                                                "111@xx.com,13800000001,EMP001\n"
-                                                "邮箱 / 手机号 / 工号 任意混合，逗号分隔"
-                                            ),
+                                            "model": "chat_id",
+                                            "label": "默认通知群聊",
+                                            "placeholder": "oc_xxx",
                                             "variant": "outlined",
-                                            "rows": 2,
-                                            "autoGrow": True,
-                                            "hint": (
-                                                "仅在点击「发送测试消息」时生效；"
-                                                "支持邮箱 / 手机号 / 工号 任意组合，"
-                                                "通过 Lark batch_get_id API 实时转 open_id 再发送"
-                                            ),
+                                            "hint": "填群聊 Chat ID（oc_xxx），留空则不发送群通知",
                                             "persistentHint": True,
                                             "clearable": True,
                                             "density": "comfortable",
@@ -336,7 +322,7 @@ class LarkMessager(_PluginBase):
                             },
                         ],
                     },
-                    # —— 第五行：管理员白名单 —— #
+                    # —— 第五行：管理员用户 —— #
                     {
                         "component": "VRow",
                         "content": [
@@ -348,10 +334,10 @@ class LarkMessager(_PluginBase):
                                         "component": "VTextField",
                                         "props": {
                                             "model": "admin_users",
-                                            "label": "管理员白名单",
-                                            "placeholder": "Open ID 列表，多个使用 , 分隔",
+                                            "label": "管理员用户",
+                                            "placeholder": "邮箱/手机号/ou_xxx，多个使用 , 分隔",
                                             "variant": "outlined",
-                                            "hint": "允许执行命令和管理操作的 Open ID 列表，多个使用 , 分隔",
+                                            "hint": "允许执行命令和管理操作的用户，填邮箱、手机号或 Open ID（ou_xxx），多个使用 , 分隔。用邮箱/手机号需开通 contact:user.id:readonly 权限",
                                             "persistentHint": True,
                                             "clearable": True,
                                             "density": "comfortable",
@@ -402,11 +388,11 @@ class LarkMessager(_PluginBase):
             "enabled": False,
             "app_id": "",
             "app_secret": "",
+            "user_id": "",
             "chat_id": "",
             "verification_token": "",
             "encrypt_key": "",
             "admin_users": "",
-            "test_recipients": "",
             "switchs": [],
         }
 
@@ -526,8 +512,7 @@ class LarkMessager(_PluginBase):
                                 },
                             ],
                         },
-                        # 步骤 2：事件订阅 URL（get_page 拿不到 request.headers，
-                        # 后端没法拼域名。显示路径部分，前端访问域名由用户自己加）
+                        # 步骤 2：事件订阅 URL
                         {
                             "component": "div",
                             "props": {"class": "mb-2"},
@@ -543,7 +528,7 @@ class LarkMessager(_PluginBase):
                             "props": {
                                 "class": "ml-4 mb-2",
                             },
-                            "text": webhook_path,
+                            "text": "http(s)://<你的MoviePilot地址>/api/v1/plugin/LarkMessager/webhook",
                         },
                         # 步骤 3
                         {
@@ -1120,7 +1105,10 @@ class LarkMessager(_PluginBase):
 
         # —— 处理卡片按钮回调事件 —— #
         elif event_type == "card.action.trigger":
-            await self._handle_card_action(event)
+            # 诊断日志：打印解密后的完整事件体，方便定位字段位置
+            logger.info("卡片回调原始事件体（解密后）: %s",
+                        json.dumps(body, ensure_ascii=False)[:2000])
+            await self._handle_card_action(event, body)
 
         return JSONResponse({"success": True})
 
@@ -1186,23 +1174,89 @@ class LarkMessager(_PluginBase):
             (text or "")[:50],
         )
 
-    async def _handle_card_action(self, event: LarkWebhookEvent):
-        """处理卡片按钮回调事件"""
-        evt = event.event or {}
-        action = evt.get("action", {})
-        operator = evt.get("operator", {})
-        action_id = action.get("action_id", "")
-        action_value = (
-            action.get("value", {}).get("value", "")
-            if isinstance(action.get("value"), dict)
-            else str(action.get("value", ""))
-        )
+    async def _handle_card_action(self, event: LarkWebhookEvent, raw_body: dict = None):
+        """
+        处理卡片按钮回调事件
+        Lark 卡片回调（card.action.trigger）有多种格式：
+        - v1.0：action/operator 在顶层，message_id 在 message.message_id
+        - v2.0：action/operator 在 event 字段里，message_id 在 context.open_message_id
+        """
+        raw_body = raw_body or {}
+
+        # 优先从顶层取（v1.0 card.action.trigger 格式），兜底从 event 里取（v2.0）
+        action = (event.action if event.action else None) or (event.event or {}).get("action", {})
+        operator = (event.operator if event.operator else None) or (event.event or {}).get("operator", {})
+
+        # message_id 可能的位置（按优先级）：
+        # 1. event.message.message_id（v1.0 card.action.trigger 顶层）
+        # 2. event.event.message.message_id（v2.0 嵌套）
+        # 3. event.event.context.open_message_id（v2.0 card.action.trigger）
+        # 4. raw_body.event.message.message_id / raw_body.event.context.open_message_id（兜底）
+        message_id = ""
+        message_obj = event.message or {}
+        if isinstance(message_obj, dict):
+            message_id = message_obj.get("message_id", "")
+        if not message_id:
+            evt = event.event or {}
+            if isinstance(evt.get("context"), dict):
+                message_id = evt["context"].get("open_message_id", "")
+            if not message_id and isinstance(evt.get("message"), dict):
+                message_id = evt["message"].get("message_id", "")
+        if not message_id:
+            # 从原始 body 兜底
+            raw_evt = raw_body.get("event", {}) or {}
+            if isinstance(raw_evt.get("context"), dict):
+                message_id = raw_evt["context"].get("open_message_id", "")
+            if not message_id and isinstance(raw_evt.get("message"), dict):
+                message_id = raw_evt["message"].get("message_id", "")
+
+        # Lark 回调里 action_id 可能在 action 顶层，也可能在 action.value.action_id 里
+        action_id = ""
+        if isinstance(action, dict):
+            action_id = action.get("action_id", "")
+            if not action_id:
+                # 兜底：从 value.action_id 取（部分版本 Lark 的格式）
+                action_id = (action.get("value") or {}).get("action_id", "")
+
+        # action_value：优先用 value.data，兜底用 value 的字符串形式
+        action_value = ""
+        if isinstance(action, dict):
+            value_raw = action.get("value", "")
+            if isinstance(value_raw, dict):
+                action_value = value_raw.get("data", "")
+                if not action_value:
+                    # value 是 dict 但没有 data 字段，转成 JSON 字符串
+                    action_value = json.dumps(value_raw, ensure_ascii=False)
+            else:
+                action_value = str(value_raw or "")
+
+        operator_open_id = ""
+        if isinstance(operator, dict):
+            operator_id_obj = operator.get("operator_id", {}) or {}
+            operator_open_id = operator_id_obj.get("open_id", "") if isinstance(operator_id_obj, dict) else ""
+            if not operator_open_id:
+                # v2 schema: operator 直接有 open_id
+                operator_open_id = operator.get("open_id", "")
 
         logger.info(
-            "收到卡片按钮回调：action_id=%s, operator=%s",
+            "收到卡片按钮回调：action_id=%s, operator=%s, message_id=%s",
             action_id,
-            operator.get("open_id"),
+            operator_open_id,
+            message_id,
         )
+
+        # 测试卡片的「点击确认」按钮：即时回复确认消息
+        if action_id == "test_ok" and self._client:
+            try:
+                self._client.reply_message(
+                    message_id,
+                    "✅ 测试确认成功！LarkMessager 插件卡片交互正常工作。",
+                    msg_type="text",
+                )
+                logger.info("已回复测试卡片确认消息（message_id=%s）", message_id)
+            except Exception as e:
+                logger.error("回复测试卡片确认消息失败：%s", e)
+            return  # 测试按钮只做回复，不触发 MessageAction 事件
 
         # 发送 MessageAction 事件
         eventmanager.send_event(
@@ -1213,10 +1267,90 @@ class LarkMessager(_PluginBase):
                     "action_id": action_id,
                     "action_value": action_value,
                     "operator_open_id": operator.get("open_id", ""),
-                    "message_id": evt.get("message", {}).get("message_id", ""),
+                    "message_id": message_id,
                 },
             )
         )
+
+    # ------------------------------------------------------------------ #
+    #  推送目标解析（群聊 + 默认用户 + 事件 userid）
+    # ------------------------------------------------------------------ #
+    def _resolve_targets(
+        self, userid: str = ""
+    ) -> tuple[list[tuple[str, str]], str]:
+        """
+        解析所有推送目标，供正式通知与测试消息复用。
+        :param userid: 事件指定的接收人（open_id/chat_id），有则追加
+        :return: (targets, warn_msg)
+            targets   去重后的 [(receive_id, receive_id_type)]
+            warn_msg  推送目标解析告警（如 user_id 格式异常等），供测试端点展示
+        """
+        targets: list[tuple[str, str]] = []
+        seen: set[str] = set()
+        warn_parts: list[str] = []
+
+        def _add(rid: str, rtype: str):
+            if rid and rid not in seen:
+                seen.add(rid)
+                targets.append((rid, rtype))
+
+        # 1. 默认群聊
+        if self._chat_id:
+            _add(self._chat_id, "chat_id")
+
+        # 2. 默认用户（支持 Open ID / 邮箱 / 手机号）
+        # 注意：Lark 国际版 batch_get_id 只支持 emails 和 mobiles，不支持 employee_ids
+        if self._user_id:
+            uid = self._user_id.strip()
+            if uid.startswith("ou_"):
+                # 已经是 Open ID，直接使用
+                _add(uid, "open_id")
+            else:
+                # 尝试当作邮箱或手机号，调用 batch_get_id 转换
+                if self._client:
+                    try:
+                        parsed = False
+                        if "@" in uid:
+                            # 邮箱
+                            result = self._client.batch_get_id(emails=[uid])
+                            parsed = True
+                        elif uid.isdigit():
+                            # 纯数字，当作手机号
+                            result = self._client.batch_get_id(mobiles=[uid])
+                            parsed = True
+                        else:
+                            # 非邮箱非手机号（如工号、用户名），Lark 国际版 batch_get_id 不支持
+                            warn_parts.append(
+                                f"用户解析失败：Lark 不支持通过工号/用户名（{uid}）查询用户。"
+                                "请填写邮箱地址或手机号，或在 Lark 开放平台查看用户 Open ID 并填写 ou_xxx"
+                            )
+                        if parsed:
+                            open_id = result.get(uid, "")
+                            if open_id:
+                                _add(open_id, "open_id")
+                            else:
+                                warn_parts.append(
+                                    f"用户解析失败：找不到用户（{uid}），请检查邮箱/手机号是否正确"
+                                )
+                    except Exception as e:
+                        error_msg = str(e)
+                        if "99991672" in error_msg or "contact:user.id:readonly" in error_msg:
+                            warn_parts.append(
+                                "用户解析失败：缺少权限 contact:user.id:readonly。"
+                                "请在 Lark 开放平台 > 权限管理 开通此权限，并重新发布应用版本"
+                            )
+                        else:
+                            warn_parts.append(f"用户解析失败：{error_msg}")
+                else:
+                    warn_parts.append(
+                        "用户解析失败：插件未启用或 Client 未初始化，无法转换邮箱/手机号为 Open ID"
+                    )
+
+        # 3. 事件指定的接收人
+        if userid:
+            _add(userid, "chat_id" if userid.startswith("oc_") else "open_id")
+
+        return targets, "；".join(warn_parts) if warn_parts else ""
 
     # ------------------------------------------------------------------ #
     #  /test 端点
@@ -1247,55 +1381,11 @@ class LarkMessager(_PluginBase):
         if not self._client:
             return JSONResponse(_store(False, "插件未启用，或 App ID / App Secret 未配置"))
 
-        # 收件人列表：默认目标 + 额外邮箱/工号收件人
-        targets: list[tuple[str, str]] = []  # [(receive_id, receive_id_type)]
-        if self._chat_id:
-            targets.append((self._chat_id, "chat_id"))
-
-        # 处理 test_recipients（邮箱/工号 → open_id）
-        # 识别规则：含 @ → email；纯数字 → mobile；其他 → employee_id
-        if self._test_recipients:
-            emails, mobiles, emp_ids = [], [], []
-            for v in self._test_recipients:
-                v = v.strip()
-                if not v:
-                    continue
-                if "@" in v:
-                    emails.append(v)
-                elif v.isdigit():
-                    mobiles.append(v)
-                else:
-                    emp_ids.append(v)
-            logger.info(
-                "LarkMessager test_recipients 分类：emails=%d, mobiles=%d, employee_ids=%d",
-                len(emails), len(mobiles), len(emp_ids),
-            )
-            try:
-                id_map = self._client.batch_get_id(
-                    emails=emails or None,
-                    mobiles=mobiles or None,
-                    employee_ids=emp_ids or None,
-                )
-                missing = []
-                for v in (emails + mobiles + emp_ids):
-                    if v in id_map:
-                        targets.append((id_map[v], "open_id"))
-                    else:
-                        missing.append(v)
-                if missing:
-                    logger.warning(
-                        "LarkMessager batch_get_id 未找到以下用户：%s", missing,
-                    )
-            except Exception as e:
-                logger.error("LarkMessager batch_get_id 失败：%s", e)
-                return JSONResponse(
-                    _store(False, f"查询收件人 Open ID 失败：{e}")
-                )
-
+        # 复用公共方法解析推送目标（群聊 + 默认用户）
+        targets, warn_msg = self._resolve_targets()
         if not targets:
-            return JSONResponse(
-                _store(False, "未配置默认群聊 Chat ID，且额外收件人为空，请至少填一项")
-            )
+            error_msg = warn_msg if warn_msg else "未配置默认通知用户或群聊，请至少填一项"
+            return JSONResponse(_store(False, error_msg))
 
         try:
             card = self._client.build_card(
@@ -1318,9 +1408,10 @@ class LarkMessager(_PluginBase):
                 "LarkMessager 测试消息已发送 %d 条，message_ids=%s",
                 len(sent_ids), sent_ids,
             )
-            return JSONResponse(
-                _store(True, f"测试消息已发送 {len(sent_ids)} 条，请到 Lark 查收（message_ids={sent_ids}）")
-            )
+            ok_msg = f"测试消息已发送 {len(sent_ids)} 条，请到 Lark 查收（message_ids={sent_ids}）"
+            if warn_msg:
+                ok_msg += f"；注意：{warn_msg}"
+            return JSONResponse(_store(True, ok_msg))
         except Exception as e:
             logger.error("LarkMessager 发送测试消息失败：%s", e)
             return JSONResponse(_store(False, f"发送失败：{e}"))
@@ -1481,56 +1572,56 @@ class LarkMessager(_PluginBase):
         image = event_data.get("image", "")
         userid = event_data.get("userid", "")
 
-        target = userid or self._chat_id
-        if not target:
+        # 复用公共方法解析推送目标（群聊 + 默认用户 + 事件 userid）
+        targets, _warn = self._resolve_targets(userid)
+        if not targets:
             return
 
-        # 判断 receive_id_type
-        rid_type = "open_id"
-        if target.startswith("oc_"):
-            rid_type = "chat_id"
-        elif target.startswith("ou_"):
-            rid_type = "open_id"
+        # 图片只需上传一次，image_key 复用给多个目标
+        image_key = None
+        if image:
+            import tempfile, os
 
-        try:
-            # 有图片：先上传图片并发送图片消息，再附卡片说明
-            if image:
-                import tempfile, os
+            tmp_path = None
+            try:
+                if image.startswith("http"):
+                    img_resp = requests.get(image, timeout=15)
+                    img_resp.raise_for_status()
+                    suffix = ".png"
+                    ct = img_resp.headers.get("Content-Type", "")
+                    if "jpeg" in ct or "jpg" in ct:
+                        suffix = ".jpg"
+                    with tempfile.NamedTemporaryFile(
+                        suffix=suffix, delete=False
+                    ) as tmp:
+                        tmp.write(img_resp.content)
+                        tmp_path = tmp.name
+                else:
+                    tmp_path = image
+                image_key = self._client.upload_image(tmp_path)
+            except Exception as e:
+                logger.error("LarkMessager 上传图片失败：%s", e)
+            finally:
+                if tmp_path and tmp_path != image and os.path.exists(tmp_path):
+                    os.unlink(tmp_path)
 
-                tmp_path = None
-                try:
-                    if image.startswith("http"):
-                        img_resp = requests.get(image, timeout=15)
-                        img_resp.raise_for_status()
-                        suffix = ".png"
-                        ct = img_resp.headers.get("Content-Type", "")
-                        if "jpeg" in ct or "jpg" in ct:
-                            suffix = ".jpg"
-                        with tempfile.NamedTemporaryFile(
-                            suffix=suffix, delete=False
-                        ) as tmp:
-                            tmp.write(img_resp.content)
-                            tmp_path = tmp.name
-                    else:
-                        tmp_path = image
-                    image_key = self._client.upload_image(tmp_path)
-                    self._client.send_image(target, image_key, receive_id_type=rid_type)
-                finally:
-                    if tmp_path and tmp_path != image and os.path.exists(tmp_path):
-                        os.unlink(tmp_path)
-
-            # 发送文字卡片（有标题或正文时才发）
-            if title or text:
-                card = self._client.build_card(
-                    title=title,
-                    content=text or "您有一条新通知",
-                    color="blue",
-                )
-                self._client.send_card(target, card, receive_id_type=rid_type)
-
-            logger.debug("NoticeMessage 已转发到Lark：%s", title)
-        except Exception as e:
-            logger.error("NoticeMessage 转发到Lark失败：%s", e)
+        # 构建一次卡片，逐个目标发送（单目标失败不影响其他）
+        card = None
+        if title or text:
+            card = self._client.build_card(
+                title=title,
+                content=text or "您有一条新通知",
+                color="blue",
+            )
+        for rid, rid_type in targets:
+            try:
+                if image_key:
+                    self._client.send_image(rid, image_key, receive_id_type=rid_type)
+                if card:
+                    self._client.send_card(rid, card, receive_id_type=rid_type)
+            except Exception as e:
+                logger.error("LarkMessager 发送到 %s(%s) 失败：%s", rid[:8], rid_type, e)
+        logger.debug("NoticeMessage 已转发到Lark：%s（目标 %d 个）", title, len(targets))
 
     # ------------------------------------------------------------------ #
     #  消息发送辅助方法（供外部调用）
@@ -1587,7 +1678,54 @@ class LarkMessager(_PluginBase):
     #  管理员权限校验
     # ------------------------------------------------------------------ #
     def _is_admin(self, open_id: str) -> bool:
-        """检查用户是否在管理员列表中"""
+        """
+        检查用户是否在管理员列表中（支持 Open ID / 邮箱 / 手机号）
+        注意：Lark 国际版 batch_get_id 只支持 emails 和 mobiles，不支持 employee_ids
+        """
         if not self._admin_users:
             return True  # 未配置管理员列表时，所有人都是管理员
-        return open_id in self._admin_users
+
+        # 快速路径：open_id 直接在列表中（用户配置了 ou_xxx）
+        if open_id in self._admin_users:
+            return True
+
+        # 慢速路径：尝试解析列表中的邮箱/手机号为 Open ID
+        if not self._client:
+            return False
+
+        for identifier in self._admin_users:
+            if identifier.startswith("ou_"):
+                # 已经是 Open ID，已经检查过了
+                continue
+
+            # 检查缓存
+            if identifier in self._admin_users_resolved:
+                if self._admin_users_resolved[identifier] == open_id:
+                    return True
+                continue
+
+            # 解析为 Open ID（只支持邮箱和手机号，Lark 国际版不支持工号）
+            try:
+                if "@" in identifier:
+                    result = self._client.batch_get_id(emails=[identifier])
+                elif identifier.isdigit():
+                    result = self._client.batch_get_id(mobiles=[identifier])
+                else:
+                    # 非邮箱非手机号（如工号），Lark 国际版不支持
+                    logger.warning(
+                        "解析管理员标识失败：%s 不是邮箱或手机号，"
+                        "Lark 国际版不支持通过工号查询，请改用邮箱或手机号",
+                        identifier,
+                    )
+                    continue
+                resolved_open_id = result.get(identifier, "")
+                # 存入缓存
+                self._admin_users_resolved[identifier] = resolved_open_id
+                if resolved_open_id == open_id:
+                    return True
+            except Exception as e:
+                logger.warning("解析管理员标识失败：%s, error=%s", identifier, e)
+                # 解析失败，跳过
+                continue
+
+        return False

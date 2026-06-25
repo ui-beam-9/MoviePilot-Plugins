@@ -125,6 +125,8 @@ class LarkClient:
         :param msg_type: 消息类型
         :return: 新消息的 message_id
         """
+        if not message_id:
+            raise RuntimeError("回复消息失败：message_id 为空，无法定位原始消息")
         url = f"{API_BASE}/im/v1/messages/{message_id}/reply"
         if msg_type == "text":
             content = json.dumps({"text": content})
@@ -132,8 +134,20 @@ class LarkClient:
             "msg_type": msg_type,
             "content": content,
         }
+        logger.debug("reply_message url=%s payload=%s", url, json.dumps(payload, ensure_ascii=False)[:300])
         resp = requests.post(url, headers=self._headers(), json=payload, timeout=15)
-        data = resp.json()
+        # 先记录响应文本再解析 JSON，避免 resp.json() 抛异常时丢失诊断信息
+        resp_text = resp.text
+        try:
+            data = resp.json()
+        except json.JSONDecodeError as e:
+            logger.error(
+                "reply_message JSON 解析失败：%s, status=%d, resp_text=%s",
+                e, resp.status_code, resp_text[:500],
+            )
+            raise RuntimeError(
+                f"Lark API 返回非 JSON 响应（status={resp.status_code}）：{resp_text[:200]}"
+            ) from e
         if data.get("code") != 0:
             raise RuntimeError(f"回复消息失败：{data.get('msg')}（code={data.get('code')}）")
         return data["data"]["message_id"]
@@ -167,7 +181,7 @@ class LarkClient:
                     "tag": "button",
                     "text": {"tag": "plain_text", "content": btn["text"]},
                     "action_id": btn.get("action_id", ""),
-                    "value": {"value": btn.get("value", "")},
+                    "value": {"action_id": btn.get("action_id", ""), "data": btn.get("value", "")},
                     "type": btn.get("type", "default"),
                 })
             elements.append({"tag": "action", "actions": actions})
@@ -390,11 +404,14 @@ class LarkClient:
             )
         result: Dict[str, str] = {}
         items = (data.get("data") or {}).get("user_list") or []
+        # 调试：打印原始响应，帮助诊断工号字段名
+        logger.debug("batch_get_id 响应：%s", json.dumps(data, ensure_ascii=False))
         for it in items:
             oid = it.get("user_id", "")
             if not oid:
                 continue
-            for key in ("email", "mobile", "employee_id"):
+            # 同时识别 employee_id 和 employee_no（FSI 国际版用 employee_no）
+            for key in ("email", "mobile", "employee_id", "employee_no"):
                 v = it.get(key, "")
                 if v:
                     result[v] = oid

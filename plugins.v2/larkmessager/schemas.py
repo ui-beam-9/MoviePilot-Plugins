@@ -41,9 +41,13 @@ class LarkInteractiveCard(BaseModel):
 class LarkWebhookEvent(BaseModel):
     """Lark Webhook 回调事件"""
     schema_: Optional[str] = Field(None, alias="schema")
-    header: Optional[Dict[str, Any]] = Field(None, description="事件头")
-    event: Optional[Dict[str, Any]] = Field(None, description="事件体")
+    header: Optional[Dict[str, Any]] = Field(None, description="事件头（v2.0 schema）")
+    event: Optional[Dict[str, Any]] = Field(None, description="事件体（im.message.receive_v1 等消息事件）")
     challenge: Optional[str] = Field(None, description="URL 验证挑战码")
+    # 卡片回调（card.action.trigger）的字段在顶层，不在 event 里
+    action: Optional[Dict[str, Any]] = Field(None, description="卡片按钮动作（card.action.trigger 时在顶层）")
+    operator: Optional[Dict[str, Any]] = Field(None, description="卡片操作人（card.action.trigger 时在顶层）")
+    message: Optional[Dict[str, Any]] = Field(None, description="卡片所属消息（card.action.trigger 时在顶层）")
 
     @property
     def event_type(self) -> str:
