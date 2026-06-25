@@ -54,11 +54,11 @@ class LarkMessager(_PluginBase):
     _enabled: bool = False
     _app_id: str = ""
     _app_secret: str = ""
-    _open_id: str = ""  # 默认用户 Open ID
     _chat_id: str = ""  # 默认群聊 Chat ID
     _verification_token: str = ""  # 事件订阅 Verification Token
     _encrypt_key: str = ""  # 消息加解密密钥（可选）
     _admin_users: List[str] = []  # 管理员 open_id 列表
+    _config_missing: List[str] = []  # 必填项缺失列表（用于详情页提示）
     _switchs: List[str] = []  # 通知场景类型（为空则全部发送）
 
     # —— 内部客户端 —— #
@@ -75,23 +75,41 @@ class LarkMessager(_PluginBase):
         self._enabled = bool(config.get("enabled", False))
         self._app_id = (config.get("app_id") or "").strip()
         self._app_secret = (config.get("app_secret") or "").strip()
-        self._open_id = (config.get("open_id") or "").strip()
         self._chat_id = (config.get("chat_id") or "").strip()
         self._verification_token = (config.get("verification_token") or "").strip()
         self._encrypt_key = (config.get("encrypt_key") or "").strip()
         self._admin_users = [
             u.strip() for u in (config.get("admin_users") or "").split(",") if u.strip()
         ]
+        self._test_recipients = [
+            u.strip() for u in (config.get("test_recipients") or "").replace("\n", ",").split(",") if u.strip()
+        ]
         self._switchs = config.get("switchs") or []
+
+        # 必填项校验：保存时如果缺关键配置，自动降级为 disabled（不阻断保存）
+        # 避免「存盘成功但运行时崩溃」的状态
+        missing: list[str] = []
+        if not self._app_id:
+            missing.append("App ID")
+        if not self._app_secret:
+            missing.append("App Secret")
+        self._config_missing = missing
+        if self._enabled and missing:
+            logger.warning(
+                "LarkMessager 必填项缺失，已自动禁用：%s。请在插件配置中补齐后重新启用。",
+                "、".join(missing),
+            )
+            self._enabled = False
 
         # 诊断日志：确认配置读取情况（不输出完整值防泄露）
         logger.info(
             "LarkMessager init_plugin: enabled=%s, app_id=%s, encrypt_key_len=%d, "
-            "verification_token_len=%d",
+            "verification_token_len=%d, missing=%s",
             self._enabled,
             (self._app_id[:8] + "...") if self._app_id else "(empty)",
             len(self._encrypt_key),
             len(self._verification_token),
+            missing or "(none)",
         )
 
         if self._enabled and self._app_id and self._app_secret:
@@ -135,11 +153,11 @@ class LarkMessager(_PluginBase):
         - enabled             是否启用
         - app_id              Lark 应用 App ID
         - app_secret          Lark 应用 App Secret
-        - open_id             默认用户 Open ID
         - chat_id             默认群聊 Chat ID
         - verification_token  Verification Token（事件订阅校验）
         - encrypt_key         Encrypt Key（消息加密，可选）
-        - admin_users         管理员 Open ID 列表（逗号分隔）
+        - admin_users         管理员 open_id 列表（逗号分隔）
+        - test_recipients     测试收件人（邮箱/工号，逗号分隔）
         - switchs             通知场景类型（多选，不选则全部发送）
         """
         return [
@@ -174,13 +192,14 @@ class LarkMessager(_PluginBase):
                                         "component": "VTextField",
                                         "props": {
                                             "model": "app_id",
-                                            "label": "App ID",
+                                            "label": "App ID *",
                                             "placeholder": "cli_xxxxxxxxxxxxxxxx",
                                             "variant": "outlined",
-                                            "hint": "Lark 开放平台应用的 App ID",
+                                            "hint": "Lark 开放平台应用的 App ID（必填）",
                                             "persistentHint": True,
                                             "clearable": True,
                                             "density": "comfortable",
+                                            "rules": [{"required": True, "message": "App ID 不能为空"}],
                                         },
                                     }
                                 ],
@@ -199,43 +218,25 @@ class LarkMessager(_PluginBase):
                                         "component": "VTextField",
                                         "props": {
                                             "model": "app_secret",
-                                            "label": "App Secret",
+                                            "label": "App Secret *",
                                             "placeholder": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
                                             "variant": "outlined",
-                                            "hint": "Lark 开放平台应用的 App Secret",
+                                            "hint": "Lark 开放平台应用的 App Secret（必填）",
                                             "persistentHint": True,
                                             "type": "password",
                                             "clearable": True,
                                             "density": "comfortable",
+                                            "rules": [{"required": True, "message": "App Secret 不能为空"}],
                                         },
                                     }
                                 ],
                             },
                         ],
                     },
-                    # —— 第三行：默认用户 Open ID + 默认群聊 Chat ID —— #
+                    # —— 第三行：默认群聊 Chat ID —— #
                     {
                         "component": "VRow",
                         "content": [
-                            {
-                                "component": "VCol",
-                                "props": {"cols": 12, "md": 6},
-                                "content": [
-                                    {
-                                        "component": "VTextField",
-                                        "props": {
-                                            "model": "open_id",
-                                            "label": "默认用户 Open ID",
-                                            "placeholder": "ou_xxx",
-                                            "variant": "outlined",
-                                            "hint": "默认通知接收用户的 Open ID，留空则优先使用互动用户",
-                                            "persistentHint": True,
-                                            "clearable": True,
-                                            "density": "comfortable",
-                                        },
-                                    }
-                                ],
-                            },
                             {
                                 "component": "VCol",
                                 "props": {"cols": 12, "md": 6},
@@ -247,7 +248,41 @@ class LarkMessager(_PluginBase):
                                             "label": "默认群聊 Chat ID",
                                             "placeholder": "oc_xxx",
                                             "variant": "outlined",
-                                            "hint": "默认通知接收群聊的 Chat ID，和 Open ID 二选一即可",
+                                            "hint": "默认通知接收群聊的 Chat ID，留空则不发送群通知",
+                                            "persistentHint": True,
+                                            "clearable": True,
+                                            "density": "comfortable",
+                                        },
+                                    }
+                                ],
+                            },
+                        ],
+                    },
+                    # —— 第三行半：测试消息额外收件人（邮箱/工号） —— #
+                    {
+                        "component": "VRow",
+                        "content": [
+                            {
+                                "component": "VCol",
+                                "props": {"cols": 12},
+                                "content": [
+                                    {
+                                        "component": "VTextarea",
+                                        "props": {
+                                            "model": "test_recipients",
+                                            "label": "测试消息额外收件人（可选）",
+                                            "placeholder": (
+                                                "111@xx.com,13800000001,EMP001\n"
+                                                "邮箱 / 手机号 / 工号 任意混合，逗号分隔"
+                                            ),
+                                            "variant": "outlined",
+                                            "rows": 2,
+                                            "autoGrow": True,
+                                            "hint": (
+                                                "仅在点击「发送测试消息」时生效；"
+                                                "支持邮箱 / 手机号 / 工号 任意组合，"
+                                                "通过 Lark batch_get_id API 实时转 open_id 再发送"
+                                            ),
                                             "persistentHint": True,
                                             "clearable": True,
                                             "density": "comfortable",
@@ -367,11 +402,11 @@ class LarkMessager(_PluginBase):
             "enabled": False,
             "app_id": "",
             "app_secret": "",
-            "open_id": "",
             "chat_id": "",
             "verification_token": "",
             "encrypt_key": "",
             "admin_users": "",
+            "test_recipients": "",
             "switchs": [],
         }
 
@@ -380,9 +415,46 @@ class LarkMessager(_PluginBase):
     # ------------------------------------------------------------------ #
     def get_page(self) -> List[dict]:
         """返回插件详情页（运行状态、使用指南、操作按钮、测试结果反馈）"""
-        status_text = "已启用" if self._enabled and self._client else "未启用或配置不完整"
-        status_color = "success" if self._enabled and self._client else "warning"
-        status_icon = "mdi-check-circle" if self._enabled and self._client else "mdi-alert-circle"
+        config_ready = bool(self._app_id and self._app_secret)
+        status_text = "已启用" if (self._enabled and self._client) else (
+            "必填项未配置，已自动禁用" if self._config_missing else "未启用"
+        )
+        status_color = "success" if (self._enabled and self._client) else "warning"
+        status_icon = "mdi-check-circle" if (self._enabled and self._client) else "mdi-alert-circle"
+
+        # —— 必填项缺失提示（最顶部显眼位置） —— #
+        missing_card: List[dict] = []
+        if self._config_missing:
+            missing_card = [{
+                "component": "VAlert",
+                "props": {
+                    "type": "warning",
+                    "variant": "tonal",
+                    "class": "mb-4",
+                    "icon": "mdi-alert-circle",
+                },
+                "content": [
+                    {
+                        "component": "div",
+                        "props": {"class": "font-weight-bold mb-1"},
+                        "text": "插件未启用：必填项缺失",
+                    },
+                    {
+                        "component": "div",
+                        "text": (
+                            "以下项尚未配置，插件已被自动禁用（不会发送任何消息）。"
+                            "请在「插件配置」中补齐后重新启用："
+                        ),
+                    },
+                    {
+                        "component": "ul",
+                        "props": {"class": "mt-1 mb-0 pl-4"},
+                        "content": [
+                            {"component": "li", "text": name} for name in self._config_missing
+                        ],
+                    },
+                ],
+            }]
 
         # —— 使用指南（仿 OIDC 插件风格，紧贴「操作」标题上方） —— #
         guide_url = (
@@ -454,7 +526,8 @@ class LarkMessager(_PluginBase):
                                 },
                             ],
                         },
-                        # 步骤 2：事件订阅 URL（用 location.origin 拼成完整 URL，参考 webhook 卡片样式）
+                        # 步骤 2：事件订阅 URL（get_page 拿不到 request.headers，
+                        # 后端没法拼域名。显示路径部分，前端访问域名由用户自己加）
                         {
                             "component": "div",
                             "props": {"class": "mb-2"},
@@ -470,12 +543,7 @@ class LarkMessager(_PluginBase):
                             "props": {
                                 "class": "ml-4 mb-2",
                             },
-                            "content": [
-                                {
-                                    "component": "span",
-                                    "text": "{{location.origin + '" + webhook_path + "'}}",
-                                },
-                            ],
+                            "text": webhook_path,
                         },
                         # 步骤 3
                         {
@@ -515,15 +583,7 @@ class LarkMessager(_PluginBase):
                                 },
                                 {
                                     "component": "strong",
-                                    "text": "「获取用户 Open ID」",
-                                },
-                                {
-                                    "component": "span",
-                                    "text": " 或 ",
-                                },
-                                {
-                                    "component": "strong",
-                                    "text": "「获取群聊 Chat ID」",
+                                    "text": "「获取已加入的群聊」",
                                 },
                                 {
                                     "component": "span",
@@ -574,6 +634,8 @@ class LarkMessager(_PluginBase):
             ],
         }
         components = [
+            # —— 必填项缺失提示（仅在缺失时显示） —— #
+            *missing_card,
             # —— 状态卡片 —— #
             {
                 "component": "VCard",
@@ -684,34 +746,10 @@ class LarkMessager(_PluginBase):
                                                     "color": "info",
                                                     "variant": "tonal",
                                                     "block": True,
-                                                    "prependIcon": "mdi-account-search",
-                                                    "size": "large",
-                                                },
-                                                "text": "获取用户 Open ID",
-                                                "events": {
-                                                    "click": {
-                                                        "api": "plugin/LarkMessager/known_users",
-                                                        "method": "GET",
-                                                        "params": {},
-                                                    }
-                                                },
-                                            }
-                                        ],
-                                    },
-                                    {
-                                        "component": "VCol",
-                                        "props": {"cols": 12, "md": 6},
-                                        "content": [
-                                            {
-                                                "component": "VBtn",
-                                                "props": {
-                                                    "color": "info",
-                                                    "variant": "tonal",
-                                                    "block": True,
                                                     "prependIcon": "mdi-forum",
                                                     "size": "large",
                                                 },
-                                                "text": "获取群聊 Chat ID",
+                                                "text": "获取已加入的群聊",
                                                 "events": {
                                                     "click": {
                                                         "api": "plugin/LarkMessager/fetch_chats",
@@ -736,8 +774,7 @@ class LarkMessager(_PluginBase):
                                 "text": (
                                     "「发送测试消息」将在 Lark 中收到一条测试卡片；"
                                     "「刷新状态」将更新上方状态信息；"
-                                    "「获取用户 Open ID」列出历史上给本应用发过消息的用户；"
-                                    "「获取群聊 Chat ID」调 Lark API 列出本应用已加入的群聊"
+                                    "「获取已加入的群聊」调 Lark API 列出本应用已加入的群聊"
                                     "（需先填写 App ID 和 App Secret 并保存）。"
                                 ),
                             },
@@ -787,47 +824,6 @@ class LarkMessager(_PluginBase):
             # 标记为「已展示」，下次 get_page（如重新打开对话框）不再显示
             last_result["displayed"] = True
             self.save_data("last_test_result", last_result)
-
-        # —— 用户 ID 查询结果（/known_users 写入） —— #
-        last_users = self.get_data("last_known_users")
-        if last_users and not last_users.get("displayed", True):
-            users_ok = last_users.get("ok", False)
-            users_msg = last_users.get("msg", "")
-            users_time = last_users.get("time", "")
-            users_alert_text = (
-                users_msg if not users_time else f"{users_msg}\n更新时间：{users_time}"
-            )
-            components.append({
-                "component": "VCard",
-                "props": {"class": "mb-4"},
-                "content": [
-                    {
-                        "component": "VCardTitle",
-                        "props": {
-                            "prependIcon": "mdi-account-multiple",
-                        },
-                        "text": "用户 Open ID（历史上给本应用发过消息的用户）",
-                    },
-                    {
-                        "component": "VCardText",
-                        "content": [
-                            {
-                                "component": "VAlert",
-                                "props": {
-                                    "type": "success" if users_ok else "warning",
-                                    "variant": "tonal",
-                                    "density": "compact",
-                                    "icon": "mdi-account-multiple"
-                                    if users_ok else "mdi-alert-circle",
-                                },
-                                "text": users_alert_text,
-                            }
-                        ],
-                    },
-                ],
-            })
-            last_users["displayed"] = True
-            self.save_data("last_known_users", last_users)
 
         # —— 群聊 ID 查询结果（/fetch_chats 写入） —— #
         last_chats = self.get_data("last_chats")
@@ -912,14 +908,6 @@ class LarkMessager(_PluginBase):
                 "auth": "bear",
                 "summary": "查询插件运行状态",
                 "description": "返回当前插件启用状态、App ID、连接状态等。",
-            },
-            {
-                "path": "/known_users",
-                "endpoint": self._known_users_endpoint,
-                "methods": ["GET"],
-                "auth": "bear",
-                "summary": "查询历史上给应用发过消息的用户 Open ID",
-                "description": "返回历史上跟本应用交互过的用户列表（Open ID + 名字）。",
             },
             {
                 "path": "/fetch_chats",
@@ -1175,25 +1163,6 @@ class LarkMessager(_PluginBase):
         # 优先使用 sender name，没有则使用 sender_id
         sender_name = sender.get("name", "") or sender_id or "Unknown"
 
-        # 累积 known_users（用于「获取用户 Open ID」按钮查询）
-        # 用 save_data 跨 worker 共享，最多保留 100 条避免无限增长
-        if sender_id:
-            try:
-                users = self.get_data("known_users") or []
-                # 避免重复
-                if not any(u.get("open_id") == sender_id for u in users):
-                    users.append({
-                        "open_id": sender_id,
-                        "name": sender.get("name", ""),
-                        "email": sender.get("email", ""),
-                        "time": time.strftime("%Y-%m-%d %H:%M:%S"),
-                    })
-                    # 限制最大条数
-                    users = users[-100:]
-                    self.save_data("known_users", users)
-            except Exception as e:
-                logger.warning("累积 known_users 失败：%s", e)
-
         comming = CommingMessage(
             channel=MessageChannel.Feishu,
             text=text or json.dumps(content, ensure_ascii=False),
@@ -1278,11 +1247,56 @@ class LarkMessager(_PluginBase):
         if not self._client:
             return JSONResponse(_store(False, "插件未启用，或 App ID / App Secret 未配置"))
 
-        target = self._chat_id or self._open_id
-        if not target:
-            return JSONResponse(_store(False, "未配置默认接收目标（Open ID 或 Chat ID 至少填一项）"))
+        # 收件人列表：默认目标 + 额外邮箱/工号收件人
+        targets: list[tuple[str, str]] = []  # [(receive_id, receive_id_type)]
+        if self._chat_id:
+            targets.append((self._chat_id, "chat_id"))
 
-        receive_id_type = "chat_id" if target.startswith("oc_") else "open_id"
+        # 处理 test_recipients（邮箱/工号 → open_id）
+        # 识别规则：含 @ → email；纯数字 → mobile；其他 → employee_id
+        if self._test_recipients:
+            emails, mobiles, emp_ids = [], [], []
+            for v in self._test_recipients:
+                v = v.strip()
+                if not v:
+                    continue
+                if "@" in v:
+                    emails.append(v)
+                elif v.isdigit():
+                    mobiles.append(v)
+                else:
+                    emp_ids.append(v)
+            logger.info(
+                "LarkMessager test_recipients 分类：emails=%d, mobiles=%d, employee_ids=%d",
+                len(emails), len(mobiles), len(emp_ids),
+            )
+            try:
+                id_map = self._client.batch_get_id(
+                    emails=emails or None,
+                    mobiles=mobiles or None,
+                    employee_ids=emp_ids or None,
+                )
+                missing = []
+                for v in (emails + mobiles + emp_ids):
+                    if v in id_map:
+                        targets.append((id_map[v], "open_id"))
+                    else:
+                        missing.append(v)
+                if missing:
+                    logger.warning(
+                        "LarkMessager batch_get_id 未找到以下用户：%s", missing,
+                    )
+            except Exception as e:
+                logger.error("LarkMessager batch_get_id 失败：%s", e)
+                return JSONResponse(
+                    _store(False, f"查询收件人 Open ID 失败：{e}")
+                )
+
+        if not targets:
+            return JSONResponse(
+                _store(False, "未配置默认群聊 Chat ID，且额外收件人为空，请至少填一项")
+            )
+
         try:
             card = self._client.build_card(
                 title="LarkMessager 测试",
@@ -1296,10 +1310,16 @@ class LarkMessager(_PluginBase):
                     }
                 ],
             )
-            message_id = self._client.send_card(target, card, receive_id_type)
-            logger.info("LarkMessager 测试消息已发送，message_id=%s", message_id)
+            sent_ids = []
+            for rid, rid_type in targets:
+                mid = self._client.send_card(rid, card, rid_type)
+                sent_ids.append(mid)
+            logger.info(
+                "LarkMessager 测试消息已发送 %d 条，message_ids=%s",
+                len(sent_ids), sent_ids,
+            )
             return JSONResponse(
-                _store(True, f"测试消息已发送，请到 Lark 查收（message_id={message_id}）")
+                _store(True, f"测试消息已发送 {len(sent_ids)} 条，请到 Lark 查收（message_ids={sent_ids}）")
             )
         except Exception as e:
             logger.error("LarkMessager 发送测试消息失败：%s", e)
@@ -1311,7 +1331,6 @@ class LarkMessager(_PluginBase):
     def _status_endpoint(self, request: Request) -> JSONResponse:
         """返回插件运行状态"""
         self.del_data("last_test_result")  # 刷新状态时清空旧的测试结果反馈
-        self.del_data("last_known_users")  # 清空用户 ID 查询结果
         self.del_data("last_chats")        # 清空群聊 ID 查询结果
         return JSONResponse(
             {
@@ -1320,51 +1339,9 @@ class LarkMessager(_PluginBase):
                 "has_client": self._client is not None,
                 "has_crypto": self._crypto is not None,
                 "admin_count": len(self._admin_users),
-                "open_id": self._open_id[:8] + "..." if self._open_id else "",
                 "chat_id": self._chat_id[:8] + "..." if self._chat_id else "",
             }
         )
-
-    # ------------------------------------------------------------------ #
-    #  /known_users 端点：返回历史上跟本应用交互过的用户 Open ID
-    # ------------------------------------------------------------------ #
-    def _known_users_endpoint(self, request: Request) -> JSONResponse:
-        """
-        返回历史上给本应用发过消息的用户列表（Open ID + 名字/邮箱，如果有）
-        数据从 self.get_data("known_users") 读取（_handle_im_message 收到消息时累积）。
-        """
-        users = self.get_data("known_users") or []
-        # 去重（按 open_id）
-        seen = set()
-        uniq = []
-        for u in users:
-            oid = u.get("open_id", "")
-            if oid and oid not in seen:
-                seen.add(oid)
-                uniq.append(u)
-        if not uniq:
-            result = {
-                "ok": False,
-                "msg": "暂无数据。请先在 Lark 中给本应用发任意一条消息，"
-                       "插件收到后会记录其 Open ID。",
-                "users": [],
-            }
-        else:
-            # 拼成易读文本
-            lines = [f"- {u.get('name', '(未知)')} ({u.get('open_id', '')})"
-                     + (f" <{u.get('email', '')}>" if u.get('email') else "")
-                     for u in uniq]
-            result = {
-                "ok": True,
-                "msg": f"共 {len(uniq)} 个用户：\n" + "\n".join(lines),
-                "users": uniq,
-            }
-        # 持久化（跨 worker 共享）+ 未展示标志（避免下次 get_page 重复渲染）
-        import datetime
-        result["time"] = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        result["displayed"] = False
-        self.save_data("last_known_users", result)
-        return JSONResponse(result)
 
     # ------------------------------------------------------------------ #
     #  /fetch_chats 端点：调 Lark 官方 API 列出本应用已加入的群聊
@@ -1462,7 +1439,7 @@ class LarkMessager(_PluginBase):
         event_data = event.event_data or {}
         if event_data.get("action") != "larkmessager_test":
             return
-        test_target = self._chat_id or self._open_id
+        test_target = self._chat_id
         if not self._client or not test_target:
             logger.warning("LarkMessager：无法发送测试消息，请检查配置")
             return
@@ -1504,7 +1481,7 @@ class LarkMessager(_PluginBase):
         image = event_data.get("image", "")
         userid = event_data.get("userid", "")
 
-        target = userid or self._open_id or self._chat_id
+        target = userid or self._chat_id
         if not target:
             return
 
@@ -1571,7 +1548,7 @@ class LarkMessager(_PluginBase):
         if not self._client:
             logger.warning("LarkMessager：client 未初始化，无法发送消息")
             return False
-        target = target or self._open_id or self._chat_id
+        target = target or self._chat_id
         if not target:
             logger.warning("LarkMessager：未配置推送目标")
             return False
@@ -1593,7 +1570,7 @@ class LarkMessager(_PluginBase):
         """发送纯文本消息"""
         if not self._client:
             return False
-        target = target or self._open_id or self._chat_id
+        target = target or self._chat_id
         if not target:
             return False
         try:

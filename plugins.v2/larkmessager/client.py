@@ -353,6 +353,53 @@ class LarkClient:
             return {}
         return data.get("data", {}).get("user", {})
 
+    def batch_get_id(
+        self,
+        emails: Optional[List[str]] = None,
+        mobiles: Optional[List[str]] = None,
+        employee_ids: Optional[List[str]] = None,
+    ) -> Dict[str, str]:
+        """
+        批量通过邮箱 / 手机号 / 工号 查询用户的 open_id
+        :param emails: 邮箱列表（最多 200 个）
+        :param mobiles: 手机号列表
+        :param employee_ids: 员工号列表
+        :return: 字典，key 是输入值（email/mobile/employee_id），value 是 open_id。
+                 找不到的 key 不会出现在字典里。
+        文档：https://open.larksuite.com/document/server-docs/contact-v3/user/batch_get_id
+        权限要求：contact:user.id:readonly
+        """
+        url = f"{API_BASE}/contact/v3/users/batch_get_id"
+        params: Dict[str, Any] = {"user_id_type": "open_id"}
+        payload: Dict[str, Any] = {}
+        if emails:
+            payload["emails"] = emails
+        if mobiles:
+            payload["mobiles"] = mobiles
+        if employee_ids:
+            payload["employee_ids"] = employee_ids
+        if not payload:
+            return {}
+        resp = requests.post(
+            url, params=params, headers=self._headers(), json=payload, timeout=15,
+        )
+        data = resp.json()
+        if data.get("code") != 0:
+            raise RuntimeError(
+                f"batch_get_id 失败：{data.get('msg')}（code={data.get('code')}）"
+            )
+        result: Dict[str, str] = {}
+        items = (data.get("data") or {}).get("user_list") or []
+        for it in items:
+            oid = it.get("user_id", "")
+            if not oid:
+                continue
+            for key in ("email", "mobile", "employee_id"):
+                v = it.get(key, "")
+                if v:
+                    result[v] = oid
+        return result
+
     # ------------------------------------------------------------------ #
     #  发送图片 / 文件消息
     # ------------------------------------------------------------------ #
