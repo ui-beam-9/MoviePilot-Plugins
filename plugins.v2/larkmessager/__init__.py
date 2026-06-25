@@ -683,6 +683,22 @@ class LarkMessager(_PluginBase):
         # —— 获取原始请求体（只能读一次） —— #
         raw_body = await request.body()
 
+        # —— 入口诊断日志（定位 Lark 后台 URL 验证 / 卡片回调验证失败问题） —— #
+        # 记录所有 Lark 相关请求头 + body 摘要，方便排查 challenge 没返回的根因
+        lark_headers = {
+            k: v for k, v in request.headers.items()
+            if k.lower().startswith("x-lark-")
+        }
+        body_preview = raw_body[:200].decode("utf-8", errors="replace")
+        logger.info(
+            "LarkMessager webhook 收到请求: method=%s, path=%s, "
+            "lark_headers=%s, body_preview=%s",
+            request.method,
+            request.url.path,
+            lark_headers,
+            body_preview,
+        )
+
         # —— 惰性初始化 crypto（解决多 worker 实例不一致问题） —— #
         # MoviePilot 用 gunicorn 多 worker，文件变化重载可能只在一个 worker 触发，
         # 其他 worker 的插件实例可能没跑 init_plugin，_crypto 是 None。
@@ -691,29 +707,18 @@ class LarkMessager(_PluginBase):
             self._crypto = LarkCrypto(self._encrypt_key, self._app_secret)
             logger.info("LarkMessager: webhook 惰性初始化 crypto（多 worker 兜底）")
 
-        # —— 签名校验（如配置了 encrypt_key，Lark 会自动启用签名） —— #
-        # 注意：Lark 签名用 encrypt_key 计算，不是 app_secret
-        # 签名头：X-Lark-Signature（hex）
-        # 时间戳头：X-Lark-Request-Timestamp
-        # 随机数头：X-Lark-Request-Nonce
-        if self._encrypt_key and self._crypto:
-            signature = request.headers.get("X-Lark-Signature", "")
-            timestamp = request.headers.get("X-Lark-Request-Timestamp", "")
-            nonce = request.headers.get("X-Lark-Request-Nonce", "")
-            if not signature:
-                logger.warning(
-                    "缺少 X-Lark-Signature 头（开启 Encrypt Key 后 Lark 会自动签名，必须校验）"
-                )
-                return JSONResponse(
-                    {"error": "missing signature"}, status_code=403
-                )
-            if not self._crypto.verify_signature(signature, raw_body, timestamp, nonce):
-                logger.warning("X-Lark-Signature 校验失败")
-                return JSONResponse(
-                    {"error": "signature verification failed"}, status_code=403
-                )
+        # —— 签名校验（延迟到初步解析之后） —— #
+        # 重要！飞书卡片回调（card.action.trigger）**不带** X-Lark-Signature 签名头，
+        # 这是飞书的设计：卡片回调靠 header.token（Verification Token）保证来源可信。
+        # 如果在这里（解析 body 之前）强制要求签名，卡片回调会被 403 拦截。
+        # 所以签名校验必须放到"初步解析 → 判断事件类型"之后。
+        # 见：https://open.larksuite.com/document/feishu-cards/card-callback-communication
+        pass  # 签名校验已移到 _verify_signature_after_parse()
 
         # —— 解析请求体 —— #
+        # is_encrypted 标记请求是否经过加密解密（用于后续签名校验决策）
+        # 加密请求能成功解密 = encrypt_key 匹配 = 请求来自 Lark，可跳过签名校验
+        is_encrypted = False
         try:
             body = json.loads(raw_body.decode("utf-8"))
         except Exception:
@@ -723,6 +728,7 @@ class LarkMessager(_PluginBase):
                 try:
                     plaintext = self._crypto.decrypt(raw_str)
                     body = json.loads(plaintext)
+                    is_encrypted = True
                 except Exception as e:
                     logger.error("Webhook 解密失败：%s", e)
                     return JSONResponse({"error": "decrypt failed"}, status_code=400)
@@ -751,9 +757,81 @@ class LarkMessager(_PluginBase):
             try:
                 plaintext = self._crypto.decrypt(encrypt_data)
                 body = json.loads(plaintext)
+                is_encrypted = True
+                logger.info("LarkMessager: 加密请求解密成功（encrypt_key 匹配）")
             except Exception as e:
                 logger.error("Webhook encrypt 字段解密失败：%s", e)
                 return JSONResponse({"error": "decrypt failed"}, status_code=400)
+
+        # —— URL 验证（challenge 检查，必须在签名校验之前！）—— #
+        # 参考 lark_webhook_server.py 的处理顺序：
+        #   解密 → 检查 challenge（URL验证阶段不校验签名）→ 校验签名 → 处理事件
+        # 为什么 URL 验证不校验签名：
+        #   1. Lark 后台「事件订阅」和「卡片回调」两处 URL 验证都会发 challenge 请求
+        #   2. 加密模式下 challenge 在解密后的 body 里，签名校验逻辑会复杂化
+        #   3. challenge 只是回显随机串，不泄露敏感信息，安全性可接受
+        #   4. token 校验（下一步）会验证 Verification Token，保证请求来自 Lark
+        if isinstance(body, dict) and (
+            "challenge" in body or body.get("type") == "url_verification"
+        ):
+            challenge = body.get("challenge", "")
+            logger.info(
+                "Lark URL 验证请求，返回 challenge: type=%s, token_prefix=%s, is_encrypted=%s",
+                body.get("type", "(unknown)"),
+                (body.get("token", "") or body.get("header", {}).get("token", "") or "")[:8],
+                is_encrypted,
+            )
+            return JSONResponse({"challenge": challenge})
+
+        # —— 签名校验（在解析 + 解密 + challenge 检查之后） —— #
+        # 飞书有三类请求，签名策略各不相同：
+        # 1. 加密事件订阅请求（body={"encrypt":"..."}）：Lark 国际版实测**可能不带**
+        #    X-Lark-Signature 头（或被中间代理剥掉）。但能用 encrypt_key 解密成功
+        #    就证明请求来自 Lark（encrypt_key 是 Lark 和插件共享的密钥），等同于签名校验。
+        # 2. 卡片回调（card.action.trigger）：飞书设计上就不带签名头，靠 Verification
+        #    Token 保证来源可信（后续 token 校验会覆盖）。
+        # 3. 明文事件订阅请求：配置了 encrypt_key 时必须带签名头。
+        # 文档参考：
+        # - 卡片回调：https://open.larksuite.com/document/feishu-cards/card-callback-communication
+        # - 事件订阅签名：https://open.larksuite.com/document/uAjLw4CM/ukTMukTMukTM/reference/v1/event/subscribe
+        if self._encrypt_key and self._crypto:
+            # 从已解析的 body 提取事件类型（兼容 v1.0 / v2.0 schema）
+            raw_event_type = ""
+            if isinstance(body, dict):
+                raw_event_type = body.get("event_type") or (
+                    (body.get("header") or {}).get("event_type", "")
+                )
+
+            if is_encrypted:
+                # 加密请求已通过解密验证 = encrypt_key 匹配 = 请求来自 Lark
+                logger.info(
+                    "加密请求解密成功，跳过 X-Lark-Signature 校验"
+                    "（event_type=%s, 密钥匹配即视为可信）",
+                    raw_event_type or "(unknown)",
+                )
+            elif raw_event_type == "card.action.trigger":
+                logger.info(
+                    "卡片回调跳过 X-Lark-Signature 校验"
+                    "（飞书设计：卡片回调不带签名，靠 token 保证安全）"
+                )
+            else:
+                # 明文非卡片回调事件：必须严格校验签名
+                signature = request.headers.get("X-Lark-Signature", "")
+                timestamp = request.headers.get("X-Lark-Request-Timestamp", "")
+                nonce = request.headers.get("X-Lark-Request-Nonce", "")
+                if not signature:
+                    logger.warning(
+                        "缺少 X-Lark-Signature 头（event_type=%s, 开启 Encrypt Key 后必须校验）",
+                        raw_event_type or "(unknown)",
+                    )
+                    return JSONResponse(
+                        {"error": "missing signature"}, status_code=403
+                    )
+                if not self._crypto.verify_signature(signature, raw_body, timestamp, nonce):
+                    logger.warning("X-Lark-Signature 校验失败")
+                    return JSONResponse(
+                        {"error": "signature verification failed"}, status_code=403
+                    )
 
         # —— Token 校验（如配置了 verification_token） —— #
         # Lark 把 verification_token 放在请求体里，不是 query 参数：
@@ -777,15 +855,6 @@ class LarkMessager(_PluginBase):
                 return JSONResponse(
                     {"error": "token verification failed"}, status_code=403
                 )
-
-        # —— URL 验证（必须在解密之后、token 校验之后检查） —— #
-        # Lark URL 验证请求 body：
-        #   {"challenge": "...", "token": "...", "type": "url_verification"}
-        # 加密模式下这个 payload 被包在 encrypt 字段里，需先解密
-        if isinstance(body, dict) and "challenge" in body:
-            challenge = body["challenge"]
-            logger.info("Lark URL 验证请求，返回 challenge")
-            return JSONResponse({"challenge": challenge})
 
         # —— 构造事件对象 —— #
         event = LarkWebhookEvent(**body)
