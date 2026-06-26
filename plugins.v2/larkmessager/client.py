@@ -140,7 +140,7 @@ class LarkClient:
         resp_text = resp.text
         try:
             data = resp.json()
-        except json.JSONDecodeError as e:
+        except Exception as e:
             logger.error(
                 "reply_message JSON 解析失败：%s, status=%d, resp_text=%s",
                 e, resp.status_code, resp_text[:500],

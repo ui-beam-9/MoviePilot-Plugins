@@ -1,9 +1,3 @@
-"""
-LarkMessager — 国际版飞书 Lark 应用通知与消息交互插件
-MoviePilot V2 插件
-作者：ui-beam-9
-"""
-
 import json
 import time
 from pathlib import Path
