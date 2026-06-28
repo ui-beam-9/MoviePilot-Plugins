@@ -17,7 +17,7 @@ MoviePilot官方插件市场：https://github.com/jxxghp/MoviePilot-Plugins
 
 支持的 OIDC Provider 包括 Authelia、Keycloak、Casdoor 等兼容标准 OIDC 协议的服务。
 
-[了解更多](./plugins.v2/oidcauth/README.md)
+[了解更多](./plugins.v2/oidcauth/README.md) | [更新日志](./plugins.v2/oidcauth/CHANGELOG.md)
 
 ---
 
@@ -30,7 +30,7 @@ MoviePilot官方插件市场：https://github.com/jxxghp/MoviePilot-Plugins
 - **标签**: 通知, Lark, 交互
 - **图标**: FeiShu_A.png
 
-[了解更多](./plugins.v2/larkmessager/README.md)
+[了解更多](./plugins.v2/larkmessager/README.md) | [更新日志](./plugins.v2/larkmessager/CHANGELOG.md)
 
 ---
 
