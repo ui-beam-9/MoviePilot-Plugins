@@ -36,7 +36,7 @@ class LarkMessager(_PluginBase):
     plugin_name = "Lark 应用消息通知"
     plugin_desc = "基于国际版飞书 Lark 开放平台应用的通知与消息交互插件，支持文本、卡片、图片、文件发送及消息回调交互。"
     plugin_icon = "https://raw.githubusercontent.com/jxxghp/MoviePilot-Plugins/main/icons/FeiShu_A.png"
-    plugin_version = "0.4.0"
+    plugin_version = "0.5.0"
     plugin_author = "ui-beam-9"
     author_url = "https://github.com/ui-beam-9"
     plugin_config_prefix = "larkmessager_"
@@ -576,7 +576,8 @@ class LarkMessager(_PluginBase):
                         {
                             "component": "div",
                             "props": {
-                                "class": "ml-4 mb-2",
+                                "class": "ml-4 mb-3 pa-2 rounded border text-body-2",
+                                "style": "border: 1px solid rgba(0,0,0,0.12); background: rgba(0,0,0,0.03); font-family: 'JetBrains Mono', 'Fira Code', Consolas, monospace; word-break: break-all;",
                             },
                             "text": "http(s)://<你的MoviePilot地址>/api/v1/plugin/LarkMessager/webhook",
                         },
