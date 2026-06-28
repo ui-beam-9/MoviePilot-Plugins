@@ -33,7 +33,7 @@ class OidcAuth(_PluginBase):
     # 插件图标
     plugin_icon = "https://raw.githubusercontent.com/jxxghp/MoviePilot-Plugins/main/icons/Oidcauth_A.png"
     # 插件版本，必须和 package.v2.json 中保持一致
-    plugin_version = "0.3.3"
+    plugin_version = "0.3.4"
     # 作者信息
     plugin_author = "ui-beam-9,jxxghp"
     author_url = "https://github.com/ui-beam-9"

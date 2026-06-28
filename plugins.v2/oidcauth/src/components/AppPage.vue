@@ -15,7 +15,7 @@ const status = ref({
   public: {},
   binding: {},
   config: null,
-  plugin_version: '0.3.0',
+  plugin_version: '0.3.4',
 })
 
 let bindPopupTimer = null

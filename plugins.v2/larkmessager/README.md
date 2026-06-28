@@ -49,6 +49,7 @@ larkmessager/
 |----------|----------|------|
 | `im:message` | 获取与发送单聊、群组消息 | 发送通知消息 + 接收用户消息 |
 | `im:chat` | 获取与更新群组信息 | 查询群聊列表、群聊详情 |
+| `im:resource` | 获取与上传图片或文件资源 | 上传图片到 Lark（通知卡片图片、用户头像等） |
 | `contact:user.base:readonly` | 获取用户基本信息 | 显示用户名称等资料 |
 | `contact:user.id:readonly` | 通过手机号或邮箱获取用户 ID | 支持在插件配置中使用邮箱/手机号指定收件人（替代 Open ID） |
 

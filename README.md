@@ -10,7 +10,7 @@ MoviePilot官方插件市场：https://github.com/jxxghp/MoviePilot-Plugins
 
 通过 OpenID Connect Provider 为 MoviePilot 提供插件化登录与账号绑定。
 
-- **版本**: 0.3.3
+- **版本**: 0.3.4
 - **作者**: ui-beam-9, jxxghp
 - **标签**: 认证, OIDC, SSO
 - **图标**: Oidcauth_A.png
