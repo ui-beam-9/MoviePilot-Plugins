@@ -2,18 +2,6 @@
 
 基于 [Lark 开放平台](https://open.larksuite.com/)（国际版飞书）自建应用的消息通知与交互插件，为 MoviePilot 提供完整的 Lark 消息通道。
 
-## 功能特性
-
-- **消息推送** — 将 MoviePilot 系统通知（订阅、下载、整理等）以交互式卡片发送到 Lark 私信或群聊
-- **双向交互** — 接收用户发给机器人的消息，转发到 MoviePilot 消息系统，支持命令交互
-- **卡片按钮回调** — 交互式卡片按钮点击回调，支持 `test_ok` 确认及其他自定义 action
-- **消息加解密** — 支持 Lark Encrypt Key 加密模式，AES-256-CBC + SHA-256 签名校验
-- **多目标推送** — 同时推送到默认群聊和默认用户，支持事件动态指定接收人
-- **灵活的收件人标识** — 支持直接填 Open ID（`ou_xxx`）、邮箱、手机号（后两者自动调用 `batch_get_id` 转换）
-- **图片 / 文件** — 支持上传图片和文件并发送，通知含图片附件时自动上传并推送
-- **群聊查询** — 内置「获取已加入的群聊」功能，调 Lark API 列出 Chat ID
-- **通知场景过滤** — 可选只推送特定场景类型的通知
-
 ## 模块结构
 
 ```
@@ -22,7 +10,7 @@ larkmessager/
 ├── client.py       # LarkClient：Token 管理、消息发送、卡片构建、媒体上传/下载、用户查询
 ├── crypto.py       # LarkCrypto：AES-256-CBC 解密 + SHA-256 签名校验
 ├── schemas.py      # Pydantic 数据模型：Webhook 事件、用户消息、卡片按钮回调
-└── requirements.txt
+└── requirements.txt # 插件依赖库
 ```
 
 ---
@@ -254,7 +242,3 @@ requests>=2.28.0
 - **加密请求**：配置了 Encrypt Key 的请求体为 `{"encrypt": "base64..."}`，解密成功即视为可信来源，跳过签名校验
 - **多 worker 兼容**：测试结果和群聊查询结果通过 `save_data` / `get_data` 持久化到数据库，跨 gunicorn worker 进程共享
 - **Vuetify 渲染**：配置页用 `get_form`，详情页用 `get_page`，按钮点击反馈通过后端 `save_data` + `get_page` 重渲染链路实现
-
-## License
-
-MIT
