@@ -5,8 +5,8 @@ const currentImports = {};
       dynamicLoadingCss([], false, './AuthPage');
       return __federation_import('./__federation_expose_AuthPage-BIzcIIH4.js').then(module =>Object.keys(module).every(item => exportSet.has(item)) ? () => module.default : () => module)},
 "./AppPage":()=>{
-      dynamicLoadingCss(["__federation_expose_AppPage-BSO-uokD.css"], false, './AppPage');
-      return __federation_import('./__federation_expose_AppPage-DUCmNaIy.js').then(module =>Object.keys(module).every(item => exportSet.has(item)) ? () => module.default : () => module)},
+      dynamicLoadingCss(["__federation_expose_AppPage-CUGenGhV.css"], false, './AppPage');
+      return __federation_import('./__federation_expose_AppPage-CA8HJVGh.js').then(module =>Object.keys(module).every(item => exportSet.has(item)) ? () => module.default : () => module)},
 "./Page":()=>{
       dynamicLoadingCss([], false, './Page');
       return __federation_import('./__federation_expose_Page--6xQNW_z.js').then(module =>Object.keys(module).every(item => exportSet.has(item)) ? () => module.default : () => module)},
