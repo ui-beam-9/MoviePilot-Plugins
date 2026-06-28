@@ -162,9 +162,9 @@ onUnmounted(() => {
             </div>
             <div class="d-flex gap-3 mb-2">
               <div class="text-medium-emphasis" style="min-width: 16px">2.</div>
-              <div class="text-body-2">
+              <div class="text-body-2 d-flex flex-column gap-1">
                 将回调地址设置为：
-                <code v-if="displayRedirectUri" class="oidc-callback-uri ml-1">{{ displayRedirectUri }}</code>
+                <span v-if="displayRedirectUri" class="oidc-callback-uri">{{ displayRedirectUri }}</span>
                 <span v-else class="text-medium-emphasis">加载中...</span>
               </div>
             </div>
@@ -202,14 +202,15 @@ onUnmounted(() => {
 
 <style scoped>
 .oidc-callback-uri {
-  background: rgba(var(--v-theme-info), 0.1);
-  color: rgb(var(--v-theme-info));
-  padding: 2px 8px;
+  display: inline-block;
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  color: rgb(var(--v-theme-on-surface));
+  padding: 6px 12px;
   border-radius: 4px;
   font-family: 'JetBrains Mono', 'Fira Code', Consolas, monospace;
   font-size: 0.85rem;
-  cursor: text;
-  user-select: all;
   word-break: break-all;
+  user-select: all;
 }
 </style>

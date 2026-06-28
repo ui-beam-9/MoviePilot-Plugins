@@ -8,10 +8,10 @@ const _hoisted_1 = { class: "oidc-auth-config pa-4" };
 const _hoisted_2 = { class: "rounded-lg border pa-4 mt-4" };
 const _hoisted_3 = { class: "d-flex align-center gap-2 mb-3" };
 const _hoisted_4 = { class: "d-flex gap-3 mb-2" };
-const _hoisted_5 = { class: "text-body-2" };
+const _hoisted_5 = { class: "text-body-2 d-flex flex-column gap-1" };
 const _hoisted_6 = {
   key: 0,
-  class: "oidc-callback-uri ml-1"
+  class: "oidc-callback-uri"
 };
 const _hoisted_7 = {
   key: 1,
@@ -333,7 +333,7 @@ return (_ctx, _cache) => {
                       _createElementVNode("div", _hoisted_5, [
                         _cache[13] || (_cache[13] = _createTextVNode(" 将回调地址设置为： ", -1)),
                         (displayRedirectUri.value)
-                          ? (_openBlock(), _createElementBlock("code", _hoisted_6, _toDisplayString(displayRedirectUri.value), 1))
+                          ? (_openBlock(), _createElementBlock("span", _hoisted_6, _toDisplayString(displayRedirectUri.value), 1))
                           : (_openBlock(), _createElementBlock("span", _hoisted_7, "加载中..."))
                       ])
                     ]),
@@ -433,6 +433,6 @@ return (_ctx, _cache) => {
 }
 
 };
-const ConfigPage = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-ea9ee126"]]);
+const ConfigPage = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-dcbb4742"]]);
 
 export { ConfigPage as default };
