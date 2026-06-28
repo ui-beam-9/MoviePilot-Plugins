@@ -161,6 +161,8 @@ class LarkClient:
         content: str,
         buttons: Optional[List[Dict[str, Any]]] = None,
         color: str = "blue",
+        img_key: Optional[str] = None,
+        link: Optional[str] = None,
     ) -> Dict[str, Any]:
         """
         构建一个简单的交互式卡片
@@ -169,11 +171,28 @@ class LarkClient:
         :param buttons: 按钮列表，每个按钮格式：
             {"text": "按钮文字", "action_id": "action_id", "value": "value", "type": "primary"}
         :param color: 卡片颜色模板：blue / green / orange / red / purple / indigo
+        :param img_key: 可选，Lark 图片 key，设置后卡片顶部展示图片
+        :param link:  可选，详情链接，设置后卡片标题可点击跳转
         :return: 卡片字典，可直接传给 send_card()
         """
-        elements: List[Dict[str, Any]] = [
-            {"tag": "div", "text": {"tag": "lark_md", "content": content}}
-        ]
+        elements: List[Dict[str, Any]] = []
+        if img_key:
+            elements.append({
+                "tag": "img",
+                "img_key": img_key,
+                "alt": {"tag": "plain_text", "content": " "},
+                "mode": "fit_horizontal",
+                "preview": True,
+            })
+        # 正文内容；无具体文本但有链接时，底部追加点击链接
+        content_blocks = []
+        if content:
+            content_blocks.append(content)
+        if link:
+            content_blocks.append(f"[点击查看详情]({link})")
+        elements.append(
+            {"tag": "div", "text": {"tag": "lark_md", "content": "\n".join(content_blocks)}}
+        )
         if buttons:
             actions = []
             for btn in buttons:
@@ -186,7 +205,7 @@ class LarkClient:
                 })
             elements.append({"tag": "action", "actions": actions})
 
-        card = {
+        card: Dict[str, Any] = {
             "config": {"wide_screen_mode": True},
             "header": {
                 "title": {"tag": "plain_text", "content": title},
@@ -194,6 +213,8 @@ class LarkClient:
             },
             "elements": elements,
         }
+        if link:
+            card["card_link"] = {"url": link}
         return card
 
     @staticmethod
@@ -259,11 +280,16 @@ class LarkClient:
         :return: image_key（用于发消息时引用）
         """
         url = f"{API_BASE}/im/v1/images"
-        params = {"image_type": image_type}
+        # 根据文件扩展名获取真实 MIME 类型，Lark API 不接受 application/octet-stream
+        import mimetypes
+        mime_type, _ = mimetypes.guess_type(image_path)
+        if not mime_type or not mime_type.startswith("image/"):
+            mime_type = "image/png"
         with open(image_path, "rb") as f:
-            files = {"image": (Path(image_path).name, f, "application/octet-stream")}
+            files = {"image": (Path(image_path).name, f, mime_type)}
+            data = {"image_type": image_type}
             headers = {"Authorization": f"Bearer {self._get_tenant_access_token()}"}
-            resp = requests.post(url, params=params, headers=headers, files=files, timeout=30)
+            resp = requests.post(url, data=data, headers=headers, files=files, timeout=30)
         data = resp.json()
         if data.get("code") != 0:
             raise RuntimeError(f"上传图片失败：{data.get('msg')}")

@@ -1698,6 +1698,7 @@ class LarkMessager(_PluginBase):
         title = event_data.get("title", "MoviePilot 通知")
         text = event_data.get("text", "")
         image = event_data.get("image", "")
+        link = event_data.get("link", "")
         userid = event_data.get("userid", "")
 
         # 复用公共方法解析推送目标（群聊 + 默认用户 + 事件 userid）
@@ -1733,18 +1734,18 @@ class LarkMessager(_PluginBase):
                 if tmp_path and tmp_path != image and os.path.exists(tmp_path):
                     os.unlink(tmp_path)
 
-        # 构建一次卡片，逐个目标发送（单目标失败不影响其他）
+        # 构建一次卡片（图片嵌入卡片内，携带链接），逐个目标发送
         card = None
         if title or text:
             card = self._client.build_card(
                 title=title,
-                content=text or "您有一条新通知",
+                content=text or "",
                 color="blue",
+                img_key=image_key,
+                link=link or None,
             )
         for rid, rid_type in targets:
             try:
-                if image_key:
-                    self._client.send_image(rid, image_key, receive_id_type=rid_type)
                 if card:
                     self._client.send_card(rid, card, receive_id_type=rid_type)
             except Exception as e:

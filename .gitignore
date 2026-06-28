@@ -166,6 +166,9 @@ plugins.v2/oidcauth/package-lock.json
 plugins.v2/oidcauth/node_modules/
 plugins.v2/oidcauth/dist/
 
+# Agents chat plugin - source only
 agents_chat/
-DESIGN.md
-tasks.md
+
+# LarkMessager plugin - design documents
+plugins.v2/larkmessager/DESIGN.md
+plugins.v2/larkmessager/tasks.md
