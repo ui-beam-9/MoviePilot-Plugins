@@ -26,7 +26,7 @@
     "icon": "FeiShu_A.png",
     "author": "ui-beam-9",
     "level": 1,
-    "release": false,
+    "release": true,
     "history": {
       "v0.1.0": "初始版本：支持 Lark 应用消息发送（文本/卡片/图片/文件）、事件订阅 Webhook、交互式卡片按钮、NoticeMessage 通知转发、远程命令 /lark_test。",
       "v0.2.0": "配置项对齐主仓库飞书通知风格；动态注册 MessageChannel.Lark 通知渠道；修复签名校验、图片格式判断及插件加载失败问题；修正插件元数据与名称。",
