@@ -22,14 +22,16 @@
     "name": "Lark 应用消息通知",
     "description": "基于国际版飞书 Lark 开放平台应用的通知与消息交互插件，支持文本、卡片、图片、文件发送及消息回调交互，不依赖内置飞书模块。",
     "labels": "通知,Lark,交互",
-    "version": "0.1.0",
+    "version": "0.4.0",
     "icon": "FeiShu_A.png",
     "author": "ui-beam-9",
     "level": 1,
-    "system_version": ">=2.12.0",
     "release": false,
     "history": {
-      "v0.1.0": "初始版本：支持 Lark 应用消息发送（文本/卡片/图片/文件）、事件订阅 Webhook、交互式卡片按钮、NoticeMessage 通知转发、远程命令 /lark_test。"
+      "v0.1.0": "初始版本：支持 Lark 应用消息发送（文本/卡片/图片/文件）、事件订阅 Webhook、交互式卡片按钮、NoticeMessage 通知转发、远程命令 /lark_test。",
+      "v0.2.0": "配置项对齐主仓库飞书通知风格；动态注册 MessageChannel.Lark 通知渠道；修复签名校验、图片格式判断及插件加载失败问题；修正插件元数据与名称。",
+      "v0.3.0": "修复 Webhook 全链路（鉴权/签名/解密/事件结构/多 worker 惰性初始化）；修复签名校验导致 Lark 后台 URL 验证失败；修复测试消息无反馈（改用 save_data 持久化 + get_page 重渲染）；新增详情页使用指南卡片与一键获取 ID 按钮。",
+      "v0.4.0": "收件人体系重构：默认用户与默认群聊统一使用邮箱/工号/Open ID 实时转换，移除手动 Open ID 配置；修复卡片回调 message_id 为空导致回复失败；修复 reply_message 异常捕获；完善使用指南步骤并修复详情页重复标题。"
     }
   }
 }

@@ -36,7 +36,7 @@ class LarkMessager(_PluginBase):
     plugin_name = "Lark 应用消息通知"
     plugin_desc = "基于国际版飞书 Lark 开放平台应用的通知与消息交互插件，支持文本、卡片、图片、文件发送及消息回调交互。"
     plugin_icon = "https://raw.githubusercontent.com/jxxghp/MoviePilot-Plugins/main/icons/FeiShu_A.png"
-    plugin_version = "0.1.0"
+    plugin_version = "0.4.0"
     plugin_author = "ui-beam-9"
     author_url = "https://github.com/ui-beam-9"
     plugin_config_prefix = "larkmessager_"
@@ -1260,12 +1260,9 @@ class LarkMessager(_PluginBase):
         comming = CommingMessage(
             channel=MessageChannel.Feishu,
             text=text or json.dumps(content, ensure_ascii=False),
-            user_id=sender_id,
+            userid=sender_id,
             username=sender_name,
-            msg_id=message.get("message_id", ""),
-            pic_url="",
-            media_list=[],
-            from_user=True,
+            message_id=message.get("message_id", ""),
         )
         eventmanager.send_event(
             EventType.UserMessage,
