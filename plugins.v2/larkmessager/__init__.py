@@ -19,7 +19,6 @@ from .schemas import LarkWebhookEvent, LarkUserMessage, LarkButtonAction
 # 复用 client 模块的 API_BASE
 from .client import API_BASE
 
-
 # 插件图标（放在 icons/ 目录，package.v2.json 引用）
 
 
@@ -194,7 +193,12 @@ class LarkMessager(_PluginBase):
                                             "persistentHint": True,
                                             "clearable": True,
                                             "density": "comfortable",
-                                            "rules": [{"required": True, "message": "App ID 不能为空"}],
+                                            "rules": [
+                                                {
+                                                    "required": True,
+                                                    "message": "App ID 不能为空",
+                                                }
+                                            ],
                                         },
                                     }
                                 ],
@@ -221,7 +225,12 @@ class LarkMessager(_PluginBase):
                                             "type": "password",
                                             "clearable": True,
                                             "density": "comfortable",
-                                            "rules": [{"required": True, "message": "App Secret 不能为空"}],
+                                            "rules": [
+                                                {
+                                                    "required": True,
+                                                    "message": "App Secret 不能为空",
+                                                }
+                                            ],
                                         },
                                     }
                                 ],
@@ -396,50 +405,59 @@ class LarkMessager(_PluginBase):
     def get_page(self) -> List[dict]:
         """返回插件详情页（运行状态、使用指南、操作按钮、测试结果反馈）"""
         config_ready = bool(self._app_id and self._app_secret)
-        status_text = "已启用" if (self._enabled and self._client) else (
-            "必填项未配置，已自动禁用" if self._config_missing else "未启用"
+        status_text = (
+            "已启用"
+            if (self._enabled and self._client)
+            else ("必填项未配置，已自动禁用" if self._config_missing else "未启用")
         )
         status_color = "success" if (self._enabled and self._client) else "warning"
-        status_icon = "mdi-check-circle" if (self._enabled and self._client) else "mdi-alert-circle"
+        status_icon = (
+            "mdi-check-circle"
+            if (self._enabled and self._client)
+            else "mdi-alert-circle"
+        )
 
         # —— 必填项缺失提示（最顶部显眼位置） —— #
         missing_card: List[dict] = []
         if self._config_missing:
-            missing_card = [{
-                "component": "VAlert",
-                "props": {
-                    "type": "warning",
-                    "variant": "tonal",
-                    "class": "mb-4",
-                    "icon": "mdi-alert-circle",
-                },
-                "content": [
-                    {
-                        "component": "div",
-                        "props": {"class": "font-weight-bold mb-1"},
-                        "text": "插件未启用：必填项缺失",
+            missing_card = [
+                {
+                    "component": "VAlert",
+                    "props": {
+                        "type": "warning",
+                        "variant": "tonal",
+                        "class": "mb-4",
+                        "icon": "mdi-alert-circle",
                     },
-                    {
-                        "component": "div",
-                        "text": (
-                            "以下项尚未配置，插件已被自动禁用（不会发送任何消息）。"
-                            "请在「插件配置」中补齐后重新启用："
-                        ),
-                    },
-                    {
-                        "component": "ul",
-                        "props": {"class": "mt-1 mb-0 pl-4"},
-                        "content": [
-                            {"component": "li", "text": name} for name in self._config_missing
-                        ],
-                    },
-                ],
-            }]
+                    "content": [
+                        {
+                            "component": "div",
+                            "props": {"class": "font-weight-bold mb-1"},
+                            "text": "插件未启用：必填项缺失",
+                        },
+                        {
+                            "component": "div",
+                            "text": (
+                                "以下项尚未配置，插件已被自动禁用（不会发送任何消息）。"
+                                "请在「插件配置」中补齐后重新启用："
+                            ),
+                        },
+                        {
+                            "component": "ul",
+                            "props": {"class": "mt-1 mb-0 pl-4"},
+                            "content": [
+                                {"component": "li", "text": name}
+                                for name in self._config_missing
+                            ],
+                        },
+                    ],
+                }
+            ]
 
         # —— 使用指南（仿 OIDC 插件风格，紧贴「操作」标题上方） —— #
         guide_url = (
-            "https://raw.githubusercontent.com/ui-beam-9/"
-            "MoviePilot-Plugins/refs/heads/main/plugins.v2/larkmessager/SETUP.md"
+            "https://github.com/ui-beam-9/"
+            "MoviePilot-Plugins/tree/main/plugins.v2/larkmessager#配置指南"
         )
         webhook_path = "/api/v1/plugin/LarkMessager/webhook"
         guide_card = {
@@ -506,14 +524,52 @@ class LarkMessager(_PluginBase):
                                 },
                             ],
                         },
-                        # 步骤 2：事件订阅 URL
+                        # 步骤 2：添加机器人能力
                         {
                             "component": "div",
                             "props": {"class": "mb-2"},
                             "content": [
                                 {
                                     "component": "span",
-                                    "text": "2. 配置事件订阅，将请求地址设置为：",
+                                    "text": "2. 在应用详情页 ",
+                                },
+                                {
+                                    "component": "strong",
+                                    "text": "添加应用能力 - 机器人",
+                                },
+                                {
+                                    "component": "span",
+                                    "text": "（必须先添加才能收发消息）。",
+                                },
+                            ],
+                        },
+                        # 步骤 3：开通权限
+                        {
+                            "component": "div",
+                            "props": {"class": "mb-2"},
+                            "content": [
+                                {
+                                    "component": "span",
+                                    "text": "3. 进入 ",
+                                },
+                                {
+                                    "component": "strong",
+                                    "text": "权限管理",
+                                },
+                                {
+                                    "component": "span",
+                                    "text": "，开通：im:message、im:chat、contact:user.base:readonly、contact:user.id:readonly",
+                                },
+                            ],
+                        },
+                        # 步骤 4：事件订阅 URL
+                        {
+                            "component": "div",
+                            "props": {"class": "mb-2"},
+                            "content": [
+                                {
+                                    "component": "span",
+                                    "text": "4. 配置事件订阅，将请求地址设置为：",
                                 },
                             ],
                         },
@@ -524,14 +580,38 @@ class LarkMessager(_PluginBase):
                             },
                             "text": "http(s)://<你的MoviePilot地址>/api/v1/plugin/LarkMessager/webhook",
                         },
-                        # 步骤 3
+                        # 步骤 5：添加事件 + 关键权限警告
                         {
                             "component": "div",
                             "props": {"class": "mb-2"},
                             "content": [
                                 {
                                     "component": "span",
-                                    "text": "3. （推荐）开启加密策略，复制 ",
+                                    "text": "5. 添加 ",
+                                },
+                                {
+                                    "component": "strong",
+                                    "text": "im.message.receive_v1",
+                                },
+                                {
+                                    "component": "span",
+                                    "text": " 事件，",
+                                },
+                                {
+                                    "component": "strong",
+                                    "props": {"class": "text-error"},
+                                    "text": "⚠️ 然后逐个开通事件相关权限（默认未开通，不开通收不到消息！）",
+                                },
+                            ],
+                        },
+                        # 步骤 6
+                        {
+                            "component": "div",
+                            "props": {"class": "mb-2"},
+                            "content": [
+                                {
+                                    "component": "span",
+                                    "text": "6. （推荐）开启加密策略，复制 ",
                                 },
                                 {
                                     "component": "strong",
@@ -551,33 +631,14 @@ class LarkMessager(_PluginBase):
                                 },
                             ],
                         },
-                        # 步骤 4：找 Open ID / Chat ID
+                        # 步骤 7
                         {
                             "component": "div",
                             "props": {"class": "mb-2"},
                             "content": [
                                 {
                                     "component": "span",
-                                    "text": "4. 在下方「操作」区点击 ",
-                                },
-                                {
-                                    "component": "strong",
-                                    "text": "「获取已加入的群聊」",
-                                },
-                                {
-                                    "component": "span",
-                                    "text": " 按钮查询（需先填写 App ID 和 App Secret 并保存）。",
-                                },
-                            ],
-                        },
-                        # 步骤 5
-                        {
-                            "component": "div",
-                            "props": {"class": "mb-2"},
-                            "content": [
-                                {
-                                    "component": "span",
-                                    "text": "5. 发布应用版本，保存插件配置后点击 ",
+                                    "text": "7. 发布应用版本，保存插件配置后点击 ",
                                 },
                                 {
                                     "component": "strong",
@@ -585,7 +646,34 @@ class LarkMessager(_PluginBase):
                                 },
                                 {
                                     "component": "span",
-                                    "text": " 验证连通性。",
+                                    "text": "，到 Lark 中查收测试卡片。",
+                                },
+                            ],
+                        },
+                        # 步骤 8：点击确认按钮验证回调
+                        {
+                            "component": "div",
+                            "props": {"class": "mb-2"},
+                            "content": [
+                                {
+                                    "component": "span",
+                                    "text": "8. 在测试卡片中点击 ",
+                                },
+                                {
+                                    "component": "strong",
+                                    "text": "「点击确认」",
+                                },
+                                {
+                                    "component": "span",
+                                    "text": " 按钮，系统将回复 ",
+                                },
+                                {
+                                    "component": "strong",
+                                    "text": "「测试确认成功」",
+                                },
+                                {
+                                    "component": "span",
+                                    "text": " 消息，验证事件回调配置正确。",
                                 },
                             ],
                         },
@@ -625,7 +713,7 @@ class LarkMessager(_PluginBase):
                         "content": [
                             {
                                 "component": "VCardTitle",
-                                "text": "Lark 应用消息通知",
+                                "text": "LarkMessager",
                             },
                             {
                                 "component": "VCardSubtitle",
@@ -751,7 +839,9 @@ class LarkMessager(_PluginBase):
                                     "icon": "mdi-information-outline",
                                 },
                                 "text": (
-                                    "「发送测试消息」将在 Lark 中收到一条测试卡片；"
+                                    "「发送测试消息」将在 Lark 中收到一条测试卡片，"
+                                    "点击卡片上的「点击确认」按钮可验证事件回调是否正常"
+                                    "（系统会回复「测试确认成功」）；"
                                     "「刷新状态」将更新上方状态信息；"
                                     "「获取已加入的群聊」调 Lark API 列出本应用已加入的群聊"
                                     "（需先填写 App ID 和 App Secret 并保存）。"
@@ -774,32 +864,40 @@ class LarkMessager(_PluginBase):
             test_time = last_result.get("time", "")
             # text 带时间戳，确保每次点击测试后 VAlert 内容都变化，
             # 避免 Vue v-for(:key=index) 因内容相同跳过 patch
-            alert_text = test_msg if not test_time else f"{test_msg}\n更新时间：{test_time}"
-            components.append({
-                "component": "VCard",
-                "props": {"class": "mb-4"},
-                "content": [
-                    {
-                        "component": "VCardTitle",
-                        "text": "测试结果",
-                    },
-                    {
-                        "component": "VCardText",
-                        "content": [
-                            {
-                                "component": "VAlert",
-                                "props": {
-                                    "type": "success" if test_ok else "error",
-                                    "variant": "tonal",
-                                    "density": "compact",
-                                    "icon": "mdi-check-circle" if test_ok else "mdi-close-circle",
+            alert_text = (
+                test_msg if not test_time else f"{test_msg}\n更新时间：{test_time}"
+            )
+            components.append(
+                {
+                    "component": "VCard",
+                    "props": {"class": "mb-4"},
+                    "content": [
+                        {
+                            "component": "VCardTitle",
+                            "text": "测试结果",
+                        },
+                        {
+                            "component": "VCardText",
+                            "content": [
+                                {
+                                    "component": "VAlert",
+                                    "props": {
+                                        "type": "success" if test_ok else "error",
+                                        "variant": "tonal",
+                                        "density": "compact",
+                                        "icon": (
+                                            "mdi-check-circle"
+                                            if test_ok
+                                            else "mdi-close-circle"
+                                        ),
+                                    },
+                                    "text": alert_text,
                                 },
-                                "text": alert_text,
-                            },
-                        ],
-                    },
-                ],
-            })
+                            ],
+                        },
+                    ],
+                }
+            )
             # 标记为「已展示」，下次 get_page（如重新打开对话框）不再显示
             last_result["displayed"] = True
             self.save_data("last_test_result", last_result)
@@ -813,35 +911,40 @@ class LarkMessager(_PluginBase):
             chats_alert_text = (
                 chats_msg if not chats_time else f"{chats_msg}\n更新时间：{chats_time}"
             )
-            components.append({
-                "component": "VCard",
-                "props": {"class": "mb-4"},
-                "content": [
-                    {
-                        "component": "VCardTitle",
-                        "props": {
-                            "prependIcon": "mdi-forum",
+            components.append(
+                {
+                    "component": "VCard",
+                    "props": {"class": "mb-4"},
+                    "content": [
+                        {
+                            "component": "VCardTitle",
+                            "props": {
+                                "prependIcon": "mdi-forum",
+                            },
+                            "text": "群聊 Chat ID（本应用已加入的群聊）",
                         },
-                        "text": "群聊 Chat ID（本应用已加入的群聊）",
-                    },
-                    {
-                        "component": "VCardText",
-                        "content": [
-                            {
-                                "component": "VAlert",
-                                "props": {
-                                    "type": "success" if chats_ok else "warning",
-                                    "variant": "tonal",
-                                    "density": "compact",
-                                    "icon": "mdi-forum"
-                                    if chats_ok else "mdi-alert-circle",
-                                },
-                                "text": chats_alert_text,
-                            }
-                        ],
-                    },
-                ],
-            })
+                        {
+                            "component": "VCardText",
+                            "content": [
+                                {
+                                    "component": "VAlert",
+                                    "props": {
+                                        "type": "success" if chats_ok else "warning",
+                                        "variant": "tonal",
+                                        "density": "compact",
+                                        "icon": (
+                                            "mdi-forum"
+                                            if chats_ok
+                                            else "mdi-alert-circle"
+                                        ),
+                                    },
+                                    "text": chats_alert_text,
+                                }
+                            ],
+                        },
+                    ],
+                }
+            )
             last_chats["displayed"] = True
             self.save_data("last_chats", last_chats)
 
@@ -919,8 +1022,7 @@ class LarkMessager(_PluginBase):
         # —— 入口诊断日志（定位 Lark 后台 URL 验证 / 卡片回调验证失败问题） —— #
         # 记录所有 Lark 相关请求头 + body 摘要，方便排查 challenge 没返回的根因
         lark_headers = {
-            k: v for k, v in request.headers.items()
-            if k.lower().startswith("x-lark-")
+            k: v for k, v in request.headers.items() if k.lower().startswith("x-lark-")
         }
         body_preview = raw_body[:200].decode("utf-8", errors="replace")
         logger.info(
@@ -1011,7 +1113,11 @@ class LarkMessager(_PluginBase):
             logger.info(
                 "Lark URL 验证请求，返回 challenge: type=%s, token_prefix=%s, is_encrypted=%s",
                 body.get("type", "(unknown)"),
-                (body.get("token", "") or body.get("header", {}).get("token", "") or "")[:8],
+                (
+                    body.get("token", "")
+                    or body.get("header", {}).get("token", "")
+                    or ""
+                )[:8],
                 is_encrypted,
             )
             return JSONResponse({"challenge": challenge})
@@ -1057,10 +1163,10 @@ class LarkMessager(_PluginBase):
                         "缺少 X-Lark-Signature 头（event_type=%s, 开启 Encrypt Key 后必须校验）",
                         raw_event_type or "(unknown)",
                     )
-                    return JSONResponse(
-                        {"error": "missing signature"}, status_code=403
-                    )
-                if not self._crypto.verify_signature(signature, raw_body, timestamp, nonce):
+                    return JSONResponse({"error": "missing signature"}, status_code=403)
+                if not self._crypto.verify_signature(
+                    signature, raw_body, timestamp, nonce
+                ):
                     logger.warning("X-Lark-Signature 校验失败")
                     return JSONResponse(
                         {"error": "signature verification failed"}, status_code=403
@@ -1100,8 +1206,10 @@ class LarkMessager(_PluginBase):
         # —— 处理卡片按钮回调事件 —— #
         elif event_type == "card.action.trigger":
             # 诊断日志：打印解密后的完整事件体，方便定位字段位置
-            logger.info("卡片回调原始事件体（解密后）: %s",
-                        json.dumps(body, ensure_ascii=False)[:2000])
+            logger.info(
+                "卡片回调原始事件体（解密后）: %s",
+                json.dumps(body, ensure_ascii=False)[:2000],
+            )
             await self._handle_card_action(event, body)
 
         return JSONResponse({"success": True})
@@ -1118,11 +1226,15 @@ class LarkMessager(_PluginBase):
         #   message_id/chat_id/chat_type/create_time/msg_type 是标量
         sender_id_obj = sender.get("sender_id", {}) or {}
         sender_id = (
-            sender_id_obj.get("open_id")
-            or sender_id_obj.get("user_id")
-            or sender_id_obj.get("union_id")
-            or ""
-        ) if isinstance(sender_id_obj, dict) else str(sender_id_obj)
+            (
+                sender_id_obj.get("open_id")
+                or sender_id_obj.get("user_id")
+                or sender_id_obj.get("union_id")
+                or ""
+            )
+            if isinstance(sender_id_obj, dict)
+            else str(sender_id_obj)
+        )
 
         content_raw = message.get("content", {})
         if isinstance(content_raw, str):
@@ -1178,8 +1290,12 @@ class LarkMessager(_PluginBase):
         raw_body = raw_body or {}
 
         # 优先从顶层取（v1.0 card.action.trigger 格式），兜底从 event 里取（v2.0）
-        action = (event.action if event.action else None) or (event.event or {}).get("action", {})
-        operator = (event.operator if event.operator else None) or (event.event or {}).get("operator", {})
+        action = (event.action if event.action else None) or (event.event or {}).get(
+            "action", {}
+        )
+        operator = (event.operator if event.operator else None) or (
+            event.event or {}
+        ).get("operator", {})
 
         # message_id 可能的位置（按优先级）：
         # 1. event.message.message_id（v1.0 card.action.trigger 顶层）
@@ -1227,7 +1343,11 @@ class LarkMessager(_PluginBase):
         operator_open_id = ""
         if isinstance(operator, dict):
             operator_id_obj = operator.get("operator_id", {}) or {}
-            operator_open_id = operator_id_obj.get("open_id", "") if isinstance(operator_id_obj, dict) else ""
+            operator_open_id = (
+                operator_id_obj.get("open_id", "")
+                if isinstance(operator_id_obj, dict)
+                else ""
+            )
             if not operator_open_id:
                 # v2 schema: operator 直接有 open_id
                 operator_open_id = operator.get("open_id", "")
@@ -1269,9 +1389,7 @@ class LarkMessager(_PluginBase):
     # ------------------------------------------------------------------ #
     #  推送目标解析（群聊 + 默认用户 + 事件 userid）
     # ------------------------------------------------------------------ #
-    def _resolve_targets(
-        self, userid: str = ""
-    ) -> tuple[list[tuple[str, str]], str]:
+    def _resolve_targets(self, userid: str = "") -> tuple[list[tuple[str, str]], str]:
         """
         解析所有推送目标，供正式通知与测试消息复用。
         :param userid: 事件指定的接收人（open_id/chat_id），有则追加
@@ -1328,7 +1446,10 @@ class LarkMessager(_PluginBase):
                                 )
                     except Exception as e:
                         error_msg = str(e)
-                        if "99991672" in error_msg or "contact:user.id:readonly" in error_msg:
+                        if (
+                            "99991672" in error_msg
+                            or "contact:user.id:readonly" in error_msg
+                        ):
                             warn_parts.append(
                                 "用户解析失败：缺少权限 contact:user.id:readonly。"
                                 "请在 Lark 开放平台 > 权限管理 开通此权限，并重新发布应用版本"
@@ -1362,6 +1483,7 @@ class LarkMessager(_PluginBase):
         displayed 标志：/test 写入 False，get_page() 显示一次后改 True 保存。
         这样每次打开插件对话框不会看到上次的旧测试结果，只有点击测试后才显示一次。
         """
+
         def _store(ok: bool, msg: str) -> dict:
             result = {
                 "ok": ok,
@@ -1373,12 +1495,16 @@ class LarkMessager(_PluginBase):
             return result
 
         if not self._client:
-            return JSONResponse(_store(False, "插件未启用，或 App ID / App Secret 未配置"))
+            return JSONResponse(
+                _store(False, "插件未启用，或 App ID / App Secret 未配置")
+            )
 
         # 复用公共方法解析推送目标（群聊 + 默认用户）
         targets, warn_msg = self._resolve_targets()
         if not targets:
-            error_msg = warn_msg if warn_msg else "未配置默认通知用户或群聊，请至少填一项"
+            error_msg = (
+                warn_msg if warn_msg else "未配置默认通知用户或群聊，请至少填一项"
+            )
             return JSONResponse(_store(False, error_msg))
 
         try:
@@ -1400,7 +1526,8 @@ class LarkMessager(_PluginBase):
                 sent_ids.append(mid)
             logger.info(
                 "LarkMessager 测试消息已发送 %d 条，message_ids=%s",
-                len(sent_ids), sent_ids,
+                len(sent_ids),
+                sent_ids,
             )
             ok_msg = f"测试消息已发送 {len(sent_ids)} 条，请到 Lark 查收（message_ids={sent_ids}）"
             if warn_msg:
@@ -1416,7 +1543,7 @@ class LarkMessager(_PluginBase):
     def _status_endpoint(self, request: Request) -> JSONResponse:
         """返回插件运行状态"""
         self.del_data("last_test_result")  # 刷新状态时清空旧的测试结果反馈
-        self.del_data("last_chats")        # 清空群聊 ID 查询结果
+        self.del_data("last_chats")  # 清空群聊 ID 查询结果
         return JSONResponse(
             {
                 "enabled": self._enabled,
@@ -1450,7 +1577,10 @@ class LarkMessager(_PluginBase):
                 url = f"{API_BASE}/im/v1/chats"
                 params = {"user_id_type": "open_id", "page_size": 100}
                 resp = requests.get(
-                    url, headers=client._headers(), params=params, timeout=10,
+                    url,
+                    headers=client._headers(),
+                    params=params,
+                    timeout=10,
                 )
                 data = resp.json()
                 if data.get("code") != 0:
@@ -1476,9 +1606,15 @@ class LarkMessager(_PluginBase):
                             "chats": [],
                         }
                     else:
-                        lines = [f"- {c['name']} ({c['chat_id']})"
-                                 + (f"\n  {c['description']}" if c.get('description') else "")
-                                 for c in chats]
+                        lines = [
+                            f"- {c['name']} ({c['chat_id']})"
+                            + (
+                                f"\n  {c['description']}"
+                                if c.get("description")
+                                else ""
+                            )
+                            for c in chats
+                        ]
                         result = {
                             "ok": True,
                             "msg": f"共 {len(chats)} 个群聊：\n" + "\n".join(lines),
@@ -1494,6 +1630,7 @@ class LarkMessager(_PluginBase):
 
         # 持久化（跨 worker 共享）+ 未展示标志
         import datetime
+
         result["time"] = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         result["displayed"] = False
         self.save_data("last_chats", result)
@@ -1614,8 +1751,12 @@ class LarkMessager(_PluginBase):
                 if card:
                     self._client.send_card(rid, card, receive_id_type=rid_type)
             except Exception as e:
-                logger.error("LarkMessager 发送到 %s(%s) 失败：%s", rid[:8], rid_type, e)
-        logger.debug("NoticeMessage 已转发到Lark：%s（目标 %d 个）", title, len(targets))
+                logger.error(
+                    "LarkMessager 发送到 %s(%s) 失败：%s", rid[:8], rid_type, e
+                )
+        logger.debug(
+            "NoticeMessage 已转发到Lark：%s（目标 %d 个）", title, len(targets)
+        )
 
     # ------------------------------------------------------------------ #
     #  消息发送辅助方法（供外部调用）
