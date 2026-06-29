@@ -1,16 +1,22 @@
 """
 LarkMessager Lark API 客户端
 Lark开放平台 API 文档：https://open.larksuite.com/document/server-docs
+
+对标内置飞书模块 app/modules/feishu/feishu.py 的 Feishu 类，
+使用纯 HTTP REST API 实现，不依赖 lark-oapi SDK。
 """
-import time
+import base64
 import json
+import re
+import tempfile
+import uuid
 from pathlib import Path
 from typing import Optional, Dict, Any, List, Tuple
+from urllib.parse import urlparse
 
 import requests
 
 from app.log import logger
-from .schemas import LarkInteractiveCard, LarkCardHeader, LarkCardElement
 
 
 # Lark开放平台 API 地址
@@ -18,23 +24,30 @@ API_BASE = "https://open.larksuite.com/open-apis"
 
 
 class LarkClient:
-    """Lark应用 API 客户端"""
+    """Lark应用 API 客户端（对标内置 Feishu 类）"""
+
+    # —— 常量（对标 Feishu 类） —— #
+    PROCESSING_REACTION_EMOJI = "GLANCE"
+    STREAM_CARD_TITLE_ELEMENT_ID = "mp_stream_title"
+    STREAM_CARD_BODY_ELEMENT_ID = "mp_stream_body"
+    IMAGE_SUFFIXES = {".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp", ".ico", ".tiff", ".heic"}
+    MARKDOWN_IMAGE_PATTERN = re.compile(r"!\[(?P<alt>[^\]\n]*)]\((?P<target>[^)\n]*)\)")
 
     def __init__(self, app_id: str, app_secret: str):
         self._app_id = app_id
         self._app_secret = app_secret
         self._token: str = ""
         self._token_expire: int = 0
+        # 用户/会话记忆（对标 Feishu._user_chat_mapping / _user_receive_id_type_mapping）
+        self._user_chat_mapping: Dict[str, str] = {}
+        self._user_receive_id_type_mapping: Dict[str, str] = {}
+        self._chat_open_mapping: Dict[str, str] = {}
 
     # ------------------------------------------------------------------ #
     #  Token 管理
     # ------------------------------------------------------------------ #
     def _get_tenant_access_token(self, force: bool = False) -> str:
-        """
-        获取 tenant_access_token，自动缓存并在过期前刷新
-        :param force: 是否强制刷新
-        """
-        now = int(time.time())
+        now = int(__import__("time").time())
         if self._token and not force and self._token_expire - now > 60:
             return self._token
         url = f"{API_BASE}/auth/v3/tenant_access_token/internal"
@@ -46,11 +59,9 @@ class LarkClient:
             raise RuntimeError(f"获取 tenant_access_token 失败：{data.get('msg')}")
         self._token = data["tenant_access_token"]
         self._token_expire = now + data.get("expire", 7200)
-        logger.info("Lark tenant_access_token 已刷新，过期时间：%s", self._token_expire)
         return self._token
 
     def _headers(self, content_type: str = "application/json") -> Dict[str, str]:
-        """构造带 Bearer Token 的请求头"""
         token = self._get_tenant_access_token()
         return {
             "Authorization": f"Bearer {token}",
@@ -58,102 +69,625 @@ class LarkClient:
         }
 
     # ------------------------------------------------------------------ #
-    #  消息发送
+    #  用户/会话记忆（对标 Feishu._remember_target / _remember_user_id_type）
+    # ------------------------------------------------------------------ #
+    def remember_target(self, userid: Optional[str], chat_id: Optional[str]) -> None:
+        normalized_userid = (userid or "").strip()
+        normalized_chat_id = (chat_id or "").strip()
+        if not normalized_userid or not normalized_chat_id:
+            return
+        self._user_chat_mapping[normalized_userid] = normalized_chat_id
+        self._chat_open_mapping[normalized_chat_id] = normalized_userid
+
+    def remember_user_id_type(
+        self, open_id: Optional[str] = None, user_id: Optional[str] = None
+    ) -> None:
+        if open_id:
+            self._user_receive_id_type_mapping[open_id.strip()] = "open_id"
+        if user_id:
+            self._user_receive_id_type_mapping[user_id.strip()] = "user_id"
+
+    # ------------------------------------------------------------------ #
+    #  目标解析（对标 Feishu._resolve_target）
+    # ------------------------------------------------------------------ #
+    def resolve_target(
+        self,
+        userid: Optional[str] = None,
+        chat_id: Optional[str] = None,
+        receive_id_type: Optional[str] = None,
+        default_open_id: Optional[str] = None,
+        default_chat_id: Optional[str] = None,
+    ) -> Tuple[str, str]:
+        """解析 Lark 发送目标，优先走显式用户，其次回退默认配置。"""
+        resolved_userid = (userid or "").strip() or None
+        resolved_chat_id = (chat_id or "").strip() or None
+        normalized_receive_id_type = (receive_id_type or "").strip() or None
+        if not resolved_userid and not resolved_chat_id:
+            resolved_userid = default_open_id
+            resolved_chat_id = default_chat_id
+            if resolved_userid and not normalized_receive_id_type:
+                normalized_receive_id_type = "open_id"
+        if normalized_receive_id_type == "chat_id" and resolved_chat_id:
+            return resolved_chat_id, "chat_id"
+        if resolved_userid:
+            if normalized_receive_id_type in {"open_id", "user_id"}:
+                return resolved_userid, normalized_receive_id_type
+            remembered_type = self._user_receive_id_type_mapping.get(resolved_userid)
+            return resolved_userid, remembered_type or "open_id"
+        if resolved_chat_id:
+            return resolved_chat_id, "chat_id"
+        raise ValueError("未找到可发送的 Lark 目标")
+
+    # ------------------------------------------------------------------ #
+    #  消息发送 / 回复（底层 API 封装）
+    # ------------------------------------------------------------------ #
+    def _send_message(
+        self, receive_id: str, receive_id_type: str, msg_type: str, content: dict
+    ) -> Optional[dict]:
+        """调用 Lark IM API 发送消息，返回统一结果结构。"""
+        url = f"{API_BASE}/im/v1/messages"
+        params = {"receive_id_type": receive_id_type}
+        payload = {
+            "receive_id": receive_id,
+            "msg_type": msg_type,
+            "content": json.dumps(content, ensure_ascii=False),
+            "uuid": str(uuid.uuid4()),
+        }
+        resp = requests.post(url, params=params, headers=self._headers(), json=payload, timeout=15)
+        data = resp.json()
+        if data.get("code") != 0:
+            logger.error("Lark 消息发送失败：code=%s, msg=%s", data.get("code"), data.get("msg"))
+            return None
+        msg_data = data.get("data", {})
+        return {
+            "success": True,
+            "message_id": msg_data.get("message_id"),
+            "chat_id": msg_data.get("chat_id"),
+            "msg_type": msg_data.get("msg_type"),
+        }
+
+    def _reply_message(
+        self,
+        message_id: str,
+        msg_type: str,
+        content: dict,
+        reply_in_thread: bool = False,
+    ) -> Optional[dict]:
+        """按原消息回复，保持 Lark 会话中的引用关系。"""
+        if not message_id:
+            raise RuntimeError("回复消息失败：message_id 为空")
+        url = f"{API_BASE}/im/v1/messages/{message_id}/reply"
+        payload = {
+            "msg_type": msg_type,
+            "content": json.dumps(content, ensure_ascii=False),
+            "uuid": str(uuid.uuid4()),
+        }
+        resp = requests.post(url, headers=self._headers(), json=payload, timeout=15)
+        data = resp.json()
+        if data.get("code") != 0:
+            logger.error("Lark 回复消息失败：code=%s, msg=%s", data.get("code"), data.get("msg"))
+            return None
+        msg_data = data.get("data", {})
+        return {
+            "success": True,
+            "message_id": msg_data.get("message_id"),
+            "chat_id": msg_data.get("chat_id"),
+            "msg_type": msg_data.get("msg_type"),
+            "root_id": msg_data.get("root_id"),
+            "parent_id": msg_data.get("parent_id"),
+            "thread_id": msg_data.get("thread_id"),
+        }
+
+    # ------------------------------------------------------------------ #
+    #  高层发送方法（对标 Feishu.send_text / send_file / send_voice / send_notification）
     # ------------------------------------------------------------------ #
     def send_text(
         self,
-        receive_id: str,
         text: str,
-        receive_id_type: str = "open_id",
-    ) -> str:
-        """
-        发送纯文本消息
-        :param receive_id: 接收者 ID（open_id / chat_id / user_id）
-        :param text: 文本内容
-        :param receive_id_type: ID 类型
-        :return: 发送后的 message_id
-        """
-        url = f"{API_BASE}/im/v1/messages"
-        params = {"receive_id_type": receive_id_type}
-        payload = {
-            "receive_id": receive_id,
-            "msg_type": "text",
-            "content": json.dumps({"text": text}),
-        }
-        resp = requests.post(url, params=params, headers=self._headers(), json=payload, timeout=15)
-        data = resp.json()
-        if data.get("code") != 0:
-            raise RuntimeError(f"发送文本消息失败：{data.get('msg')}（code={data.get('code')}）")
-        return data["data"]["message_id"]
-
-    def send_card(
-        self,
-        receive_id: str,
-        card: Dict[str, Any],
-        receive_id_type: str = "open_id",
-    ) -> str:
-        """
-        发送交互式卡片消息
-        :param receive_id: 接收者 ID
-        :param card: 卡片字典（由 build_card / build_interactive_card 生成）
-        :param receive_id_type: ID 类型
-        :return: 发送后的 message_id
-        """
-        url = f"{API_BASE}/im/v1/messages"
-        params = {"receive_id_type": receive_id_type}
-        payload = {
-            "receive_id": receive_id,
-            "msg_type": "interactive",
-            "content": json.dumps(card),
-        }
-        resp = requests.post(url, params=params, headers=self._headers(), json=payload, timeout=15)
-        data = resp.json()
-        if data.get("code") != 0:
-            raise RuntimeError(f"发送卡片消息失败：{data.get('msg')}（code={data.get('code')}）")
-        return data["data"]["message_id"]
-
-    def reply_message(
-        self,
-        message_id: str,
-        content: str,
-        msg_type: str = "text",
-    ) -> str:
-        """
-        回复消息
-        :param message_id: 要回复的消息 ID
-        :param content: 消息内容（文本或 JSON 字符串）
-        :param msg_type: 消息类型
-        :return: 新消息的 message_id
-        """
-        if not message_id:
-            raise RuntimeError("回复消息失败：message_id 为空，无法定位原始消息")
-        url = f"{API_BASE}/im/v1/messages/{message_id}/reply"
-        if msg_type == "text":
-            content = json.dumps({"text": content})
-        payload = {
-            "msg_type": msg_type,
-            "content": content,
-        }
-        logger.debug("reply_message url=%s payload=%s", url, json.dumps(payload, ensure_ascii=False)[:300])
-        resp = requests.post(url, headers=self._headers(), json=payload, timeout=15)
-        # 先记录响应文本再解析 JSON，避免 resp.json() 抛异常时丢失诊断信息
-        resp_text = resp.text
+        userid: Optional[str] = None,
+        chat_id: Optional[str] = None,
+        receive_id_type: Optional[str] = None,
+        original_message_id: Optional[str] = None,
+        default_open_id: Optional[str] = None,
+        default_chat_id: Optional[str] = None,
+    ) -> Optional[dict]:
+        """发送纯文本消息。"""
         try:
-            data = resp.json()
-        except Exception as e:
-            logger.error(
-                "reply_message JSON 解析失败：%s, status=%d, resp_text=%s",
-                e, resp.status_code, resp_text[:500],
+            if original_message_id:
+                result = self._reply_message(
+                    message_id=original_message_id,
+                    msg_type="text",
+                    content={"text": text},
+                )
+            else:
+                receive_id, resolved_type = self.resolve_target(
+                    userid=userid, chat_id=chat_id, receive_id_type=receive_id_type,
+                    default_open_id=default_open_id, default_chat_id=default_chat_id,
+                )
+                result = self._send_message(receive_id, resolved_type, "text", {"text": text})
+        except Exception as err:
+            logger.error(f"Lark 文本消息发送失败：{err}")
+            return {"success": False}
+
+        if not result:
+            return {"success": False}
+        result["chat_id"] = result.get("chat_id") or chat_id or self._user_chat_mapping.get(
+            userid or "") or default_chat_id
+        return result
+
+    def send_file(
+        self,
+        file_path: str,
+        userid: Optional[str] = None,
+        chat_id: Optional[str] = None,
+        title: Optional[str] = None,
+        text: Optional[str] = None,
+        file_name: Optional[str] = None,
+        receive_id_type: Optional[str] = None,
+        original_message_id: Optional[str] = None,
+        default_open_id: Optional[str] = None,
+        default_chat_id: Optional[str] = None,
+    ) -> Optional[dict]:
+        """发送本地图片或文件（对标 Feishu.send_file）。"""
+        local_file = Path(file_path)
+        if not local_file.exists() or not local_file.is_file():
+            logger.error(f"Lark 附件不存在：{local_file}")
+            return {"success": False}
+
+        suffix = local_file.suffix.lower()
+        is_image = suffix in self.IMAGE_SUFFIXES
+        try:
+            if is_image:
+                image_key = self.upload_image(str(local_file))
+                if not image_key:
+                    return {"success": False}
+                payload = self.build_card_v2(
+                    title=title, text=text, link=None, buttons=None, image_key=image_key,
+                )
+                if original_message_id:
+                    result = self._reply_message(
+                        message_id=original_message_id, msg_type="interactive", content=payload,
+                    )
+                else:
+                    receive_id, resolved_type = self.resolve_target(
+                        userid=userid, chat_id=chat_id, receive_id_type=receive_id_type,
+                        default_open_id=default_open_id, default_chat_id=default_chat_id,
+                    )
+                    result = self._send_message(receive_id, resolved_type, "interactive", payload)
+            else:
+                file_key = self.upload_file(str(local_file), file_name=file_name)
+                if not file_key:
+                    return {"success": False}
+                if original_message_id:
+                    result = self._reply_message(
+                        message_id=original_message_id, msg_type="file", content={"file_key": file_key},
+                    )
+                else:
+                    receive_id, resolved_type = self.resolve_target(
+                        userid=userid, chat_id=chat_id, receive_id_type=receive_id_type,
+                        default_open_id=default_open_id, default_chat_id=default_chat_id,
+                    )
+                    result = self._send_message(receive_id, resolved_type, "file", {"file_key": file_key})
+            if result and (title or text) and not is_image:
+                self.send_text(
+                    self._build_message_text(title=title, text=text),
+                    userid=userid, chat_id=chat_id, receive_id_type=receive_id_type,
+                    original_message_id=original_message_id,
+                    default_open_id=default_open_id, default_chat_id=default_chat_id,
+                )
+        except Exception as err:
+            logger.error(f"Lark 附件发送失败：{err}")
+            return {"success": False}
+
+        if not result:
+            return {"success": False}
+        result["chat_id"] = result.get("chat_id") or chat_id or self._user_chat_mapping.get(
+            userid or "") or default_chat_id
+        return result
+
+    def send_voice(
+        self,
+        voice_path: str,
+        userid: Optional[str] = None,
+        chat_id: Optional[str] = None,
+        caption: Optional[str] = None,
+        receive_id_type: Optional[str] = None,
+        original_message_id: Optional[str] = None,
+        default_open_id: Optional[str] = None,
+        default_chat_id: Optional[str] = None,
+    ) -> Optional[dict]:
+        """发送 Lark 语音消息（对标 Feishu.send_voice）。"""
+        local_file = Path(voice_path)
+        if not local_file.exists() or not local_file.is_file():
+            logger.error(f"Lark 语音文件不存在：{local_file}")
+            return {"success": False}
+
+        try:
+            file_key = self.upload_file(str(local_file), file_name=local_file.name)
+            if not file_key:
+                return {"success": False}
+            if original_message_id:
+                result = self._reply_message(
+                    message_id=original_message_id, msg_type="audio", content={"file_key": file_key},
+                )
+            else:
+                receive_id, resolved_type = self.resolve_target(
+                    userid=userid, chat_id=chat_id, receive_id_type=receive_id_type,
+                    default_open_id=default_open_id, default_chat_id=default_chat_id,
+                )
+                result = self._send_message(receive_id, resolved_type, "audio", {"file_key": file_key})
+            if result and caption:
+                self.send_text(
+                    caption, userid=userid, chat_id=chat_id, receive_id_type=receive_id_type,
+                    original_message_id=original_message_id,
+                    default_open_id=default_open_id, default_chat_id=default_chat_id,
+                )
+        except Exception as err:
+            logger.error(f"Lark 语音消息发送失败：{err}")
+            return {"success": False}
+
+        if not result:
+            return {"success": False}
+        result["chat_id"] = result.get("chat_id") or chat_id or self._user_chat_mapping.get(
+            userid or "") or default_chat_id
+        return result
+
+    def send_notification(
+        self,
+        message,  # Notification 对象
+        userid: Optional[str] = None,
+        chat_id: Optional[str] = None,
+        receive_id_type: Optional[str] = None,
+        original_message_id: Optional[str] = None,
+        default_open_id: Optional[str] = None,
+        default_chat_id: Optional[str] = None,
+    ) -> Optional[dict]:
+        """发送通知消息（对标 Feishu.send_notification）。"""
+        from app.schemas.types import NotificationType
+
+        is_streaming_agent_text = (
+            message.mtype == NotificationType.Agent
+            and not message.buttons
+            and not message.link
+        )
+        if is_streaming_agent_text:
+            try:
+                stream_image_urls = []
+                if self._is_external_image_url(message.image):
+                    stream_image_urls.append(message.image)
+                stream_image_urls.extend(self._extract_markdown_image_urls(message.text))
+                result = self._send_streaming_card_message(
+                    title=message.title, text=message.text,
+                    userid=userid, chat_id=chat_id, receive_id_type=receive_id_type,
+                    original_message_id=original_message_id,
+                    default_open_id=default_open_id, default_chat_id=default_chat_id,
+                )
+            except Exception as err:
+                logger.warning(f"Lark 流式卡片发送失败：{err}")
+                return {"success": False}
+            if not result:
+                return {"success": False}
+            result["chat_id"] = result.get("chat_id") or chat_id or self._user_chat_mapping.get(
+                userid or "") or default_chat_id
+            sent_image_urls = self._send_agent_streaming_images(
+                stream_image_urls, userid=userid,
+                chat_id=result.get("chat_id") or chat_id, receive_id_type=receive_id_type,
+                default_open_id=default_open_id, default_chat_id=default_chat_id,
             )
-            raise RuntimeError(
-                f"Lark API 返回非 JSON 响应（status={resp.status_code}）：{resp_text[:200]}"
-            ) from e
-        if data.get("code") != 0:
-            raise RuntimeError(f"回复消息失败：{data.get('msg')}（code={data.get('code')}）")
-        return data["data"]["message_id"]
+            stream_meta = result.get("metadata", {}).get("feishu_streaming")
+            if isinstance(stream_meta, dict):
+                stream_meta["sent_image_urls"] = sent_image_urls
+            return result
+
+        image_key = self._upload_remote_image(message.image)
+        payload = self.build_card_v2(
+            title=message.title, text=message.text, link=message.link,
+            buttons=message.buttons, image_key=image_key,
+        )
+        try:
+            if original_message_id:
+                result = self._reply_message(
+                    message_id=original_message_id, msg_type="interactive", content=payload,
+                )
+            else:
+                receive_id, resolved_type = self.resolve_target(
+                    userid=userid, chat_id=chat_id, receive_id_type=receive_id_type,
+                    default_open_id=default_open_id, default_chat_id=default_chat_id,
+                )
+                result = self._send_message(receive_id, resolved_type, "interactive", payload)
+        except Exception as err:
+            logger.error(f"Lark 通知发送失败：{err}")
+            return {"success": False}
+
+        if not result:
+            return {"success": False}
+        result["chat_id"] = result.get("chat_id") or chat_id or self._user_chat_mapping.get(
+            userid or "") or default_chat_id
+        return result
 
     # ------------------------------------------------------------------ #
-    #  卡片构建
+    #  消息编辑（对标 Feishu.edit_message）
+    # ------------------------------------------------------------------ #
+    def edit_message(
+        self,
+        message_id: str,
+        title: Optional[str] = None,
+        text: Optional[str] = None,
+        buttons: Optional[List[List[dict]]] = None,
+        metadata: Optional[dict] = None,
+        chat_id: Optional[str] = None,
+    ) -> bool:
+        """编辑已发送的 Lark 交互卡片消息。"""
+        if not message_id:
+            return False
+
+        # 流式卡片更新
+        stream_meta = (metadata or {}).get("feishu_streaming") if isinstance(metadata, dict) else None
+        if isinstance(stream_meta, dict) and not buttons:
+            card_id = str(stream_meta.get("card_id") or "").strip()
+            element_id = str(stream_meta.get("element_id") or self.STREAM_CARD_BODY_ELEMENT_ID).strip()
+            sequence = int(stream_meta.get("sequence") or 0) + 1
+            stream_meta["sequence"] = sequence
+
+            if card_id and element_id:
+                content = self._escape_card_text(
+                    self._strip_streaming_markdown_images(text)
+                ).strip()
+                if self._update_streaming_card_content(
+                    card_id=card_id, element_id=element_id, content=content or " ", sequence=sequence,
+                ):
+                    stream_image_urls = self._extract_markdown_image_urls(text)
+                    stream_meta["sent_image_urls"] = self._send_agent_streaming_images(
+                        stream_image_urls, chat_id=chat_id,
+                        sent_image_urls=stream_meta.get("sent_image_urls") or [],
+                    )
+                    return True
+                logger.error("Lark 流式更新失败被拦截，返回 False 以防止降级")
+                return False
+
+        # 普通卡片编辑
+        card = self.build_card_v2(title=title, text=text, link=None, buttons=buttons)
+        url = f"{API_BASE}/im/v1/messages/{message_id}"
+        try:
+            resp = requests.patch(
+                url, headers=self._headers(),
+                json={"content": json.dumps(card, ensure_ascii=False)},
+                timeout=15,
+            )
+            data = resp.json()
+            if data.get("code") == 0:
+                return True
+            logger.error("Lark 消息更新失败：code=%s, msg=%s", data.get("code"), data.get("msg"))
+        except Exception as err:
+            logger.error(f"Lark 消息更新失败：{err}")
+        return False
+
+    # ------------------------------------------------------------------ #
+    #  表情回应（对标 Feishu.add_message_reaction / delete_message_reaction）
+    # ------------------------------------------------------------------ #
+    def add_message_reaction(self, message_id: str, emoji_type: str) -> Optional[str]:
+        """为指定消息添加表情回应，返回 reaction_id。"""
+        if not message_id or not emoji_type:
+            return None
+        url = f"{API_BASE}/im/v1/messages/{message_id}/reactions"
+        payload = {"reaction_type": {"emoji_type": emoji_type}}
+        try:
+            resp = requests.post(url, headers=self._headers(), json=payload, timeout=10)
+            data = resp.json()
+            if data.get("code") != 0:
+                logger.error("Lark 表情添加失败：message_id=%s, emoji=%s, code=%s, msg=%s",
+                             message_id, emoji_type, data.get("code"), data.get("msg"))
+                return None
+            return data.get("data", {}).get("reaction_id")
+        except Exception as err:
+            logger.error(f"Lark 表情添加失败：{err}")
+            return None
+
+    def delete_message_reaction(self, message_id: str, reaction_id: str) -> bool:
+        """删除指定消息上的表情回应。"""
+        if not message_id or not reaction_id:
+            return False
+        url = f"{API_BASE}/im/v1/messages/{message_id}/reactions/{reaction_id}"
+        try:
+            resp = requests.delete(url, headers=self._headers(), timeout=10)
+            data = resp.json()
+            if data.get("code") == 0:
+                return True
+            logger.error("Lark 表情删除失败：message_id=%s, reaction_id=%s, code=%s, msg=%s",
+                         message_id, reaction_id, data.get("code"), data.get("msg"))
+        except Exception as err:
+            logger.error(f"Lark 表情删除失败：{err}")
+        return False
+
+    # ------------------------------------------------------------------ #
+    #  资源下载（对标 Feishu.download_image_bytes / download_file_bytes / download_message_resource_bytes）
+    # ------------------------------------------------------------------ #
+    def download_image_bytes(self, image_key: str) -> Optional[Tuple[bytes, Optional[str], Optional[str]]]:
+        """下载 Lark 图片，返回 (bytes, file_name, content_type)。"""
+        if not image_key:
+            return None
+        url = f"{API_BASE}/im/v1/images/{image_key}"
+        try:
+            resp = requests.get(url, headers=self._headers(), timeout=15)
+            if resp.status_code != 200:
+                return None
+            content_type = resp.headers.get("Content-Type")
+            return resp.content, None, content_type
+        except Exception as err:
+            logger.error(f"Lark 图片下载失败：{err}")
+            return None
+
+    def download_file_bytes(self, file_key: str) -> Optional[Tuple[bytes, Optional[str], Optional[str]]]:
+        """下载 Lark 文件，返回 (bytes, file_name, content_type)。"""
+        if not file_key:
+            return None
+        url = f"{API_BASE}/im/v1/files/{file_key}?file_type=stream"
+        try:
+            resp = requests.get(url, headers=self._headers(), timeout=60)
+            if resp.status_code != 200:
+                return None
+            content_type = resp.headers.get("Content-Type")
+            return resp.content, None, content_type
+        except Exception as err:
+            logger.error(f"Lark 文件下载失败：{err}")
+            return None
+
+    def download_message_resource_bytes(
+        self, message_id: str, file_key: str, resource_type: str
+    ) -> Optional[Tuple[bytes, Optional[str], Optional[str]]]:
+        """下载消息中的资源文件（图片/音频/文件），返回 (bytes, file_name, content_type)。"""
+        if not message_id or not file_key:
+            return None
+        url = f"{API_BASE}/im/v1/messages/{message_id}/resources/{file_key}"
+        params = {"type": resource_type}
+        try:
+            resp = requests.get(url, headers=self._headers(), params=params, timeout=60)
+            if resp.status_code != 200:
+                return None
+            content_type = resp.headers.get("Content-Type")
+            return resp.content, None, content_type
+        except Exception as err:
+            logger.error(f"Lark 消息资源下载失败：{err}")
+            return None
+
+    # ------------------------------------------------------------------ #
+    #  卡片构建（对标 Feishu._build_card，schema 2.0）
+    # ------------------------------------------------------------------ #
+    @staticmethod
+    def _escape_card_text(text: Optional[str]) -> str:
+        """转义 Lark 卡片 markdown 中易误触的字符。"""
+        if not text:
+            return ""
+        escaped = str(text)
+        for source, target in {"\\": "&#92;", "<": "&#60;", ">": "&#62;"}.items():
+            escaped = escaped.replace(source, target)
+        return escaped
+
+    @staticmethod
+    def _build_message_text(
+        title: Optional[str], text: Optional[str], link: Optional[str] = None
+    ) -> str:
+        """拼接 Lark Markdown 文本内容。"""
+        parts = []
+        if title:
+            parts.append(f"**{LarkClient._escape_card_text(title).strip()}**")
+        if text:
+            parts.append(LarkClient._escape_card_text(text).strip())
+        if link:
+            parts.append(f"[查看详情]({link.strip()})")
+        return "\n\n".join(part for part in parts if part)
+
+    @classmethod
+    def _build_markdown_section(
+        cls, text: Optional[str], text_size: str = "normal", margin: Optional[str] = None
+    ) -> Optional[dict]:
+        content = cls._escape_card_text(text).strip()
+        if not content:
+            return None
+        section = {"tag": "markdown", "text_size": text_size, "content": content}
+        if margin:
+            section["margin"] = margin
+        return section
+
+    @staticmethod
+    def _card_actions(
+        buttons: Optional[List[List[dict]]], margin: Optional[str] = None
+    ) -> List[dict]:
+        """将统一按钮结构转换为 Lark schema 2.0 卡片按钮配置。"""
+        if not buttons:
+            return []
+        card_rows = []
+        for row in buttons[:8]:
+            columns = []
+            for button in row[:3]:
+                text = (button or {}).get("text")
+                if not text:
+                    continue
+                url = (button or {}).get("url")
+                callback_data = (button or {}).get("callback_data")
+                behaviors = []
+                if callback_data:
+                    behaviors.append({
+                        "type": "callback",
+                        "value": {"callback_data": str(callback_data)},
+                    })
+                if url:
+                    behaviors.append({
+                        "type": "open_url",
+                        "default_url": str(url),
+                        "pc_url": str(url),
+                        "android_url": str(url),
+                        "ios_url": str(url),
+                    })
+                if not behaviors:
+                    behaviors.append({
+                        "type": "callback",
+                        "value": {"callback_data": str(text)},
+                    })
+                element = {
+                    "tag": "button",
+                    "text": {"tag": "plain_text", "content": text[:20]},
+                    "type": "default",
+                    "behaviors": behaviors,
+                }
+                columns.append({
+                    "tag": "column", "width": "weighted", "weight": 1, "elements": [element],
+                })
+            if columns:
+                row_dict = {"tag": "column_set", "flex_mode": "none", "columns": columns}
+                if margin:
+                    row_dict["margin"] = margin
+                card_rows.append(row_dict)
+        return card_rows
+
+    @classmethod
+    def build_card_v2(
+        cls,
+        title: Optional[str],
+        text: Optional[str],
+        link: Optional[str],
+        buttons: Optional[List[List[dict]]],
+        image_key: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """构建 Lark schema 2.0 交互卡片（对标 Feishu._build_card）。"""
+        elements: List[dict] = []
+        if image_key:
+            elements.append({
+                "tag": "img",
+                "img_key": image_key,
+                "alt": {"tag": "plain_text", "content": title or "图片"},
+                "mode": "fit_horizontal",
+            })
+        text_margin = "12px 12px 0px 12px" if image_key else None
+        body_margin = "4px 12px 12px 12px" if image_key else None
+        action_margin = "0px 12px 12px 12px" if image_key else None
+        title_section = cls._build_markdown_section(title, text_size="heading", margin=text_margin)
+        body_section = cls._build_markdown_section(
+            cls._build_message_text(title=None, text=text, link=link),
+            text_size="normal", margin=body_margin,
+        )
+        if title_section:
+            elements.append(title_section)
+        if body_section:
+            elements.append(body_section)
+        elements.extend(cls._card_actions(buttons, margin=action_margin))
+        return {
+            "schema": "2.0",
+            "config": {
+                "wide_screen_mode": True,
+                "enable_forward": True,
+                "update_multi": True,
+                "summary": {"content": title or "MoviePilot"},
+            },
+            "body": {
+                "direction": "vertical",
+                "padding": "0px 0px 0px 0px" if image_key else "12px 12px 12px 12px",
+                "elements": elements,
+            },
+        }
+
+    # ------------------------------------------------------------------ #
+    #  兼容旧接口：保留 build_card 给测试端点使用
     # ------------------------------------------------------------------ #
     @staticmethod
     def build_card(
@@ -165,72 +699,29 @@ class LarkClient:
         link: Optional[str] = None,
     ) -> Dict[str, Any]:
         """
-        构建一个简单的交互式卡片
-        :param title: 卡片标题
-        :param content: 卡片正文（Markdown 支持）
-        :param buttons: 按钮列表，每个按钮格式：
-            {"text": "按钮文字", "action_id": "action_id", "value": "value", "type": "primary"}
-        :param color: 卡片颜色模板：blue / green / orange / red / purple / indigo
-        :param img_key: 可选，Lark 图片 key，设置后卡片顶部展示图片
-        :param link:  可选，详情链接，设置后卡片标题可点击跳转
-        :return: 卡片字典，可直接传给 send_card()
+        构建测试用卡片（旧版兼容接口，转为 schema 2.0 格式）。
+        buttons 格式: [{"text": "...", "action_id": "...", "value": "...", "type": "primary"}]
         """
-        elements: List[Dict[str, Any]] = []
-        if img_key:
-            elements.append({
-                "tag": "img",
-                "img_key": img_key,
-                "alt": {"tag": "plain_text", "content": " "},
-                "mode": "fit_horizontal",
-                "preview": True,
-            })
-        # 正文内容；无具体文本但有链接时，底部追加点击链接
-        content_blocks = []
-        if content:
-            content_blocks.append(content)
-        if link:
-            content_blocks.append(f"[点击查看详情]({link})")
-        elements.append(
-            {"tag": "div", "text": {"tag": "lark_md", "content": "\n".join(content_blocks)}}
-        )
+        # 将旧版按钮格式转换为新版 List[List[dict]] 格式
+        v2_buttons = None
         if buttons:
-            actions = []
+            v2_buttons = []
             for btn in buttons:
-                actions.append({
-                    "tag": "button",
-                    "text": {"tag": "plain_text", "content": btn["text"]},
-                    "action_id": btn.get("action_id", ""),
-                    "value": {"action_id": btn.get("action_id", ""), "data": btn.get("value", "")},
-                    "type": btn.get("type", "default"),
-                })
-            elements.append({"tag": "action", "actions": actions})
-
-        card: Dict[str, Any] = {
-            "config": {"wide_screen_mode": True},
-            "header": {
-                "title": {"tag": "plain_text", "content": title},
-                "template": color,
-            },
-            "elements": elements,
-        }
-        if link:
-            card["card_link"] = {"url": link}
-        return card
+                callback_data = btn.get("value") or btn.get("action_id") or ""
+                v2_buttons.append([{
+                    "text": btn.get("text", ""),
+                    "callback_data": callback_data,
+                }])
+        return LarkClient.build_card_v2(
+            title=title, text=content, link=link,
+            buttons=v2_buttons, image_key=img_key,
+        )
 
     @staticmethod
     def build_button(
-        text: str,
-        action_id: str,
-        value: str = "",
-        button_type: str = "default",
+        text: str, action_id: str, value: str = "", button_type: str = "default"
     ) -> Dict[str, Any]:
-        """
-        构建单个卡片按钮（供外部组装使用）
-        :param text: 按钮文字
-        :param action_id: 按钮动作 ID（回调时携带）
-        :param value: 按钮附加值
-        :param button_type: 按钮样式：default / primary / danger / warning
-        """
+        """构建单个卡片按钮（旧版兼容接口）。"""
         return {
             "tag": "button",
             "text": {"tag": "plain_text", "content": text},
@@ -240,48 +731,321 @@ class LarkClient:
         }
 
     def build_interactive_card(
-        self,
-        title: str,
-        body_elements: List[Dict[str, Any]],
-        actions: Optional[List[Dict[str, Any]]] = None,
-        color: str = "blue",
+        self, title: str, body_elements: List[Dict[str, Any]],
+        actions: Optional[List[Dict[str, Any]]] = None, color: str = "blue",
     ) -> Dict[str, Any]:
-        """
-        构建自定义交互式卡片（高级接口）
-        :param title: 卡片标题
-        :param body_elements: 卡片 body 元素列表（div / img / hr 等）
-        :param actions: 卡片底部动作按钮列表
-        :param color: 卡片颜色模板
-        """
+        """构建自定义交互式卡片（旧版兼容接口）。"""
         elements = list(body_elements)
         if actions:
             elements.append({"tag": "action", "actions": actions})
         return {
-            "config": {"wide_screen_mode": True},
-            "header": {
-                "title": {"tag": "plain_text", "content": title},
-                "template": color,
-            },
-            "elements": elements,
+            "schema": "2.0",
+            "config": {"wide_screen_mode": True, "update_multi": True, "summary": {"content": title}},
+            "body": {"direction": "vertical", "padding": "12px 12px 12px 12px", "elements": elements},
         }
 
     # ------------------------------------------------------------------ #
-    #  媒体文件上传 / 下载
+    #  流式卡片（对标 Feishu._build_streaming_card_payload / _create_streaming_card 等）
     # ------------------------------------------------------------------ #
-    def upload_image(
+    @classmethod
+    def _build_streaming_card_payload(
+        cls, title: Optional[str], text: Optional[str]
+    ) -> Dict[str, Any]:
+        """构建支持 CardKit 流式更新的 Lark 卡片 JSON 2.0。"""
+        elements: List[dict] = []
+        title_content = cls._escape_card_text(title).strip() if title else ""
+        body_content = cls._escape_card_text(cls._strip_streaming_markdown_images(text)).strip()
+        if title_content:
+            elements.append({
+                "tag": "markdown",
+                "element_id": cls.STREAM_CARD_TITLE_ELEMENT_ID,
+                "content": f"**{title_content}**",
+            })
+        elements.append({
+            "tag": "markdown",
+            "element_id": cls.STREAM_CARD_BODY_ELEMENT_ID,
+            "content": body_content or " ",
+        })
+        return {
+            "schema": "2.0",
+            "config": {
+                "wide_screen_mode": True,
+                "enable_forward": True,
+                "update_multi": True,
+                "streaming_mode": True,
+                "summary": {"content": title or "MoviePilot助手"},
+                "streaming_config": {
+                    "print_frequency_ms": {"default": 70},
+                    "print_step": {"default": 1},
+                    "print_strategy": "fast",
+                },
+            },
+            "body": {
+                "direction": "vertical",
+                "padding": "12px 12px 12px 12px",
+                "elements": elements,
+            },
+        }
+
+    def _create_streaming_card(self, title: Optional[str], text: Optional[str]) -> Optional[str]:
+        """通过 CardKit API 创建流式卡片，返回 card_id。"""
+        url = f"{API_BASE}/cardkit/v1/cards"
+        card_data = self._build_streaming_card_payload(title=title, text=text)
+        payload = {
+            "type": "card_json",
+            "data": json.dumps(card_data, ensure_ascii=False),
+        }
+        try:
+            resp = requests.post(url, headers=self._headers(), json=payload, timeout=15)
+            data = resp.json()
+            if data.get("code") == 0:
+                return data.get("data", {}).get("card_id")
+            logger.warning("Lark 流式卡片创建失败：code=%s, msg=%s", data.get("code"), data.get("msg"))
+        except Exception as err:
+            logger.error(f"Lark 流式卡片创建失败：{err}")
+        return None
+
+    def _send_streaming_card_message(
         self,
-        image_path: str,
-        image_type: str = "message",
-    ) -> str:
-        """
-        上传图片，返回 image_key
-        :param image_path: 本地图片路径
-        :param image_type: 图片类型：message / avatar
-        :return: image_key（用于发消息时引用）
-        """
-        url = f"{API_BASE}/im/v1/images"
-        # 根据文件扩展名获取真实 MIME 类型，Lark API 不接受 application/octet-stream
+        title: Optional[str],
+        text: Optional[str],
+        userid: Optional[str] = None,
+        chat_id: Optional[str] = None,
+        receive_id_type: Optional[str] = None,
+        original_message_id: Optional[str] = None,
+        default_open_id: Optional[str] = None,
+        default_chat_id: Optional[str] = None,
+    ) -> Optional[dict]:
+        """创建流式卡片并发送消息，返回带 metadata 的结果。"""
+        card_id = self._create_streaming_card(title=title, text=text)
+        if not card_id:
+            return None
+        card_content = {"type": "card", "data": {"card_id": card_id}}
+        if original_message_id:
+            result = self._reply_message(
+                message_id=original_message_id, msg_type="interactive", content=card_content,
+            )
+        else:
+            receive_id, resolved_type = self.resolve_target(
+                userid=userid, chat_id=chat_id, receive_id_type=receive_id_type,
+                default_open_id=default_open_id, default_chat_id=default_chat_id,
+            )
+            result = self._send_message(receive_id, resolved_type, "interactive", card_content)
+        if not result:
+            return None
+        result["metadata"] = {
+            "feishu_streaming": {
+                "card_id": card_id,
+                "element_id": self.STREAM_CARD_BODY_ELEMENT_ID,
+                "sequence": 0,
+            }
+        }
+        return result
+
+    def _update_streaming_card_content(
+        self, card_id: str, element_id: str, content: str, sequence: int
+    ) -> bool:
+        """更新流式卡片内容（CardKit API）。"""
+        url = f"{API_BASE}/cardkit/v1/cards/{card_id}/elements/{element_id}/content"
+        payload = {
+            "uuid": str(uuid.uuid4()),
+            "content": content or " ",
+            "sequence": sequence,
+        }
+        try:
+            resp = requests.post(url, headers=self._headers(), json=payload, timeout=15)
+            data = resp.json()
+            if data.get("code") == 0:
+                logger.debug("Lark 流式卡片更新成功：card_id=%s, seq=%s", card_id, sequence)
+                return True
+            logger.warning("Lark 流式卡片内容更新失败：card_id=%s, seq=%s, code=%s, msg=%s",
+                           card_id, sequence, data.get("code"), data.get("msg"))
+        except Exception as err:
+            logger.error(f"Lark 流式卡片内容更新失败：{err}")
+        return False
+
+    def close_streaming_card(self, card_id: str, sequence: int) -> bool:
+        """关闭流式卡片（CardKit settings API）。"""
+        if not card_id:
+            return False
+        url = f"{API_BASE}/cardkit/v1/cards/{card_id}/settings"
+        payload = {
+            "settings": json.dumps({"config": {"streaming_mode": False}}, ensure_ascii=False),
+            "uuid": str(uuid.uuid4()),
+            "sequence": sequence,
+        }
+        try:
+            resp = requests.post(url, headers=self._headers(), json=payload, timeout=15)
+            data = resp.json()
+            if data.get("code") == 0:
+                return True
+            logger.warning("Lark 关闭流式卡片失败：card_id=%s, seq=%s, code=%s, msg=%s",
+                           card_id, sequence, data.get("code"), data.get("msg"))
+        except Exception as err:
+            logger.error(f"Lark 关闭流式卡片失败：{err}")
+        return False
+
+    # ------------------------------------------------------------------ #
+    #  流式卡片辅助方法（对标 Feishu._strip_streaming_markdown_images 等）
+    # ------------------------------------------------------------------ #
+    @classmethod
+    def _strip_streaming_markdown_images(cls, text: Optional[str]) -> str:
+        if not text:
+            return ""
+        normalized_text = cls._strip_trailing_incomplete_markdown_image(str(text))
+        parts = []
+        last_end = 0
+        for match in cls.MARKDOWN_IMAGE_PATTERN.finditer(normalized_text):
+            parts.append(normalized_text[last_end:match.start()])
+            alt_text = (match.group("alt") or "").strip()
+            if alt_text:
+                parts.append(alt_text)
+            last_end = match.end()
+        parts.append(normalized_text[last_end:])
+        return "".join(parts)
+
+    @classmethod
+    def _strip_trailing_incomplete_markdown_image(cls, text: str) -> str:
+        if not text:
+            return ""
+        start = text.rfind("![")
+        if start < 0:
+            return text
+        fragment = text[start:]
+        if "\n" in fragment or "\r" in fragment or cls.MARKDOWN_IMAGE_PATTERN.fullmatch(fragment):
+            return text
+        if ")" not in fragment:
+            return text[:start].rstrip()
+        return text
+
+    @classmethod
+    def _extract_markdown_image_urls(cls, text: Optional[str]) -> List[str]:
+        if not text:
+            return []
+        urls = []
+        for match in cls.MARKDOWN_IMAGE_PATTERN.finditer(str(text)):
+            image_url = (match.group("target") or "").strip()
+            if image_url and cls._is_external_image_url(image_url):
+                urls.append(image_url)
+        return urls
+
+    @staticmethod
+    def _is_external_image_url(image_url: str) -> bool:
+        normalized_url = (image_url or "").strip().lower()
+        return normalized_url.startswith(("http://", "https://", "feishu://image/"))
+
+    @staticmethod
+    def _dedupe_image_urls(image_urls: List[str]) -> List[str]:
+        deduped = []
+        seen = set()
+        for image_url in image_urls:
+            normalized_url = (image_url or "").strip()
+            if not normalized_url or normalized_url in seen:
+                continue
+            seen.add(normalized_url)
+            deduped.append(normalized_url)
+        return deduped
+
+    def _send_agent_streaming_images(
+        self,
+        image_urls: List[str],
+        userid: Optional[str] = None,
+        chat_id: Optional[str] = None,
+        receive_id_type: Optional[str] = None,
+        sent_image_urls: Optional[List[str]] = None,
+        default_open_id: Optional[str] = None,
+        default_chat_id: Optional[str] = None,
+    ) -> List[str]:
+        """将 Agent 流式回复中的图片作为独立图片卡片发送。"""
+        sent_images = list(sent_image_urls or [])
+        pending_image_urls = [
+            url for url in self._dedupe_image_urls(image_urls) if url not in sent_images
+        ]
+        for image_url in pending_image_urls:
+            image_key = self._upload_remote_image(image_url)
+            if not image_key:
+                continue
+            payload = self.build_card_v2(
+                title=None, text=None, link=None, buttons=None, image_key=image_key,
+            )
+            try:
+                receive_id, resolved_type = self.resolve_target(
+                    userid=userid, chat_id=chat_id, receive_id_type=receive_id_type,
+                    default_open_id=default_open_id, default_chat_id=default_chat_id,
+                )
+                self._send_message(receive_id, resolved_type, "interactive", payload)
+                sent_images.append(image_url)
+            except Exception as err:
+                logger.error(f"Lark Agent 图片消息发送失败：{err}")
+        return sent_images
+
+    # ------------------------------------------------------------------ #
+    #  远程图片上传（对标 Feishu._upload_remote_image）
+    # ------------------------------------------------------------------ #
+    def _upload_remote_image(self, image_url: Optional[str]) -> Optional[str]:
+        """下载远程图片并上传到 Lark，返回 image_key。"""
+        image_url = (image_url or "").strip()
+        if not image_url:
+            return None
+        if image_url.startswith("feishu://image/"):
+            resource_path = image_url.replace("feishu://image/", "", 1)
+            return resource_path.rsplit("/", 1)[-1].strip() or None
+
+        try:
+            resp = requests.get(image_url, timeout=30)
+            if not resp.content:
+                logger.warning(f"Lark 图片下载失败：{image_url}")
+                return None
+            content_type = resp.headers.get("Content-Type", "")
+            suffix = ".jpg"
+            if "png" in content_type:
+                suffix = ".png"
+            elif "gif" in content_type:
+                suffix = ".gif"
+            elif "webp" in content_type:
+                suffix = ".webp"
+            elif "jpeg" in content_type or "jpg" in content_type:
+                suffix = ".jpg"
+            else:
+                path_suffix = Path(urlparse(image_url).path).suffix.lower()
+                if path_suffix in self.IMAGE_SUFFIXES:
+                    suffix = path_suffix
+            with tempfile.NamedTemporaryFile(suffix=suffix, delete=False) as fp:
+                fp.write(resp.content)
+                temp_path = fp.name
+            try:
+                return self.upload_image(temp_path)
+            finally:
+                try:
+                    Path(temp_path).unlink(missing_ok=True)
+                except Exception:
+                    pass
+        except Exception as err:
+            logger.error(f"Lark 远程图片上传失败：{err}")
+            return None
+
+    # ------------------------------------------------------------------ #
+    #  卡片回调数据提取（对标 Feishu._extract_card_callback_data）
+    # ------------------------------------------------------------------ #
+    @staticmethod
+    def extract_card_callback_data(value: Any, name: Optional[str] = None) -> Optional[str]:
+        """从新版/旧版卡片回调中提取统一的 callback_data。"""
+        callback_data = None
+        if isinstance(value, dict):
+            callback_data = value.get("callback_data") or value.get("data") or value.get("value")
+        elif isinstance(value, str):
+            callback_data = value
+        if not callback_data:
+            callback_data = name
+        return str(callback_data).strip() if callback_data else None
+
+    # ------------------------------------------------------------------ #
+    #  媒体文件上传 / 下载（基础 API）
+    # ------------------------------------------------------------------ #
+    def upload_image(self, image_path: str, image_type: str = "message") -> str:
+        """上传图片，返回 image_key。"""
         import mimetypes
+        url = f"{API_BASE}/im/v1/images"
         mime_type, _ = mimetypes.guess_type(image_path)
         if not mime_type or not mime_type.startswith("image/"):
             mime_type = "image/png"
@@ -295,19 +1059,8 @@ class LarkClient:
             raise RuntimeError(f"上传图片失败：{data.get('msg')}")
         return data["data"]["image_key"]
 
-    def upload_file(
-        self,
-        file_path: str,
-        file_name: str = "",
-        file_type: str = "stream",
-    ) -> str:
-        """
-        上传文件，返回 file_key
-        :param file_path: 本地文件路径
-        :param file_name: 文件名（不填则取路径中的文件名）
-        :param file_type: 文件类型，参考Lark文档
-        :return: file_key
-        """
+    def upload_file(self, file_path: str, file_name: str = "", file_type: str = "stream") -> str:
+        """上传文件，返回 file_key。"""
         url = f"{API_BASE}/im/v1/files"
         params = {"file_type": file_type}
         file_name = file_name or Path(file_path).name
@@ -321,11 +1074,7 @@ class LarkClient:
         return data["data"]["file_key"]
 
     def download_image(self, image_key: str) -> bytes:
-        """
-        下载Lark图片，返回图片二进制数据
-        :param image_key: 图片的 image_key
-        :return: 图片 bytes
-        """
+        """下载 Lark 图片，返回图片二进制数据（旧版兼容接口）。"""
         url = f"{API_BASE}/im/v1/images/{image_key}"
         resp = requests.get(url, headers=self._headers(), timeout=15)
         resp.raise_for_status()
@@ -337,9 +1086,6 @@ class LarkClient:
 
     @staticmethod
     def _guess_image_ext(img_bytes: bytes) -> str:
-        """
-        根据文件头字节判断图片扩展名（替代已移除的 imghdr 模块）
-        """
         if img_bytes.startswith(b'\xff\xd8'):
             return "jpeg"
         if img_bytes.startswith(b'\x89PNG\r\n\x1a\n'):
@@ -353,23 +1099,14 @@ class LarkClient:
         return "png"
 
     def download_image_to_data_url(self, image_key: str) -> str:
-        """
-        下载Lark图片并转为 data URL（用于 AI 智能体识别图片）
-        :param image_key: 图片的 image_key
-        :return: data URL 字符串，如 "data:image/png;base64,xxxx"
-        """
-        import base64
+        """下载 Lark 图片并转为 data URL（用于 AI 智能体识别图片）。"""
         img_bytes = self.download_image(image_key)
         ext = self._guess_image_ext(img_bytes)
         b64 = base64.b64encode(img_bytes).decode("utf-8")
         return f"data:image/{ext};base64,{b64}"
 
-    def download_file_bytes(self, file_key: str) -> bytes:
-        """
-        下载Lark文件，返回文件二进制数据
-        :param file_key: 文件的 file_key
-        :return: 文件 bytes
-        """
+    def download_file_bytes_raw(self, file_key: str) -> bytes:
+        """下载 Lark 文件，返回文件二进制数据（旧版兼容接口）。"""
         url = f"{API_BASE}/im/v1/files/{file_key}?file_type=stream"
         resp = requests.get(url, headers=self._headers(), timeout=60)
         resp.raise_for_status()
@@ -379,11 +1116,7 @@ class LarkClient:
     #  用户信息查询
     # ------------------------------------------------------------------ #
     def get_user_info(self, open_id: str) -> Dict[str, Any]:
-        """
-        查询用户基本信息（用于判断是否为管理员）
-        :param open_id: 用户的 open_id
-        :return: 用户信息字典
-        """
+        """查询用户基本信息。"""
         url = f"{API_BASE}/contact/v3/users/{open_id}"
         params = {"user_id_type": "open_id"}
         resp = requests.get(url, headers=self._headers(), params=params, timeout=10)
@@ -399,16 +1132,7 @@ class LarkClient:
         mobiles: Optional[List[str]] = None,
         employee_ids: Optional[List[str]] = None,
     ) -> Dict[str, str]:
-        """
-        批量通过邮箱 / 手机号 / 工号 查询用户的 open_id
-        :param emails: 邮箱列表（最多 200 个）
-        :param mobiles: 手机号列表
-        :param employee_ids: 员工号列表
-        :return: 字典，key 是输入值（email/mobile/employee_id），value 是 open_id。
-                 找不到的 key 不会出现在字典里。
-        文档：https://open.larksuite.com/document/server-docs/contact-v3/user/batch_get_id
-        权限要求：contact:user.id:readonly
-        """
+        """批量通过邮箱/手机号/工号查询用户的 open_id。"""
         url = f"{API_BASE}/contact/v3/users/batch_get_id"
         params: Dict[str, Any] = {"user_id_type": "open_id"}
         payload: Dict[str, Any] = {}
@@ -420,23 +1144,16 @@ class LarkClient:
             payload["employee_ids"] = employee_ids
         if not payload:
             return {}
-        resp = requests.post(
-            url, params=params, headers=self._headers(), json=payload, timeout=15,
-        )
+        resp = requests.post(url, params=params, headers=self._headers(), json=payload, timeout=15)
         data = resp.json()
         if data.get("code") != 0:
-            raise RuntimeError(
-                f"batch_get_id 失败：{data.get('msg')}（code={data.get('code')}）"
-            )
+            raise RuntimeError(f"batch_get_id 失败：{data.get('msg')}（code={data.get('code')}）")
         result: Dict[str, str] = {}
         items = (data.get("data") or {}).get("user_list") or []
-        # 调试：打印原始响应，帮助诊断工号字段名
-        logger.debug("batch_get_id 响应：%s", json.dumps(data, ensure_ascii=False))
         for it in items:
             oid = it.get("user_id", "")
             if not oid:
                 continue
-            # 同时识别 employee_id 和 employee_no（FSI 国际版用 employee_no）
             for key in ("email", "mobile", "employee_id", "employee_no"):
                 v = it.get(key, "")
                 if v:
@@ -444,44 +1161,67 @@ class LarkClient:
         return result
 
     # ------------------------------------------------------------------ #
-    #  发送图片 / 文件消息
+    #  旧版发送方法（保持向后兼容）
     # ------------------------------------------------------------------ #
-    def send_image(
-        self,
-        receive_id: str,
-        image_key: str,
-        receive_id_type: str = "open_id",
+    def send_card(
+        self, receive_id: str, card: Dict[str, Any], receive_id_type: str = "open_id"
     ) -> str:
-        """发送图片消息（需先 upload_image 拿到 image_key）"""
-        url = f"{API_BASE}/im/v1/messages"
-        params = {"receive_id_type": receive_id_type}
-        payload = {
-            "receive_id": receive_id,
-            "msg_type": "image",
-            "content": json.dumps({"image_key": image_key}),
-        }
-        resp = requests.post(url, params=params, headers=self._headers(), json=payload, timeout=15)
-        data = resp.json()
-        if data.get("code") != 0:
-            raise RuntimeError(f"发送图片消息失败：{data.get('msg')}")
-        return data["data"]["message_id"]
+        """发送交互式卡片消息，返回 message_id（旧版兼容接口）。"""
+        result = self._send_message(receive_id, receive_id_type, "interactive", card)
+        if not result or not result.get("success"):
+            raise RuntimeError("发送卡片消息失败")
+        return result["message_id"]
 
-    def send_file(
-        self,
-        receive_id: str,
-        file_key: str,
-        receive_id_type: str = "open_id",
+    def send_image_msg(
+        self, receive_id: str, image_key: str, receive_id_type: str = "open_id"
     ) -> str:
-        """发送文件消息（需先 upload_file 拿到 file_key）"""
-        url = f"{API_BASE}/im/v1/messages"
-        params = {"receive_id_type": receive_id_type}
-        payload = {
-            "receive_id": receive_id,
-            "msg_type": "file",
-            "content": json.dumps({"file_key": file_key}),
-        }
-        resp = requests.post(url, params=params, headers=self._headers(), json=payload, timeout=15)
-        data = resp.json()
-        if data.get("code") != 0:
-            raise RuntimeError(f"发送文件消息失败：{data.get('msg')}")
-        return data["data"]["message_id"]
+        """发送图片消息（旧版兼容接口）。"""
+        result = self._send_message(receive_id, receive_id_type, "image", {"image_key": image_key})
+        if not result or not result.get("success"):
+            raise RuntimeError("发送图片消息失败")
+        return result["message_id"]
+
+    def send_file_msg(
+        self, receive_id: str, file_key: str, receive_id_type: str = "open_id"
+    ) -> str:
+        """发送文件消息（旧版兼容接口）。"""
+        result = self._send_message(receive_id, receive_id_type, "file", {"file_key": file_key})
+        if not result or not result.get("success"):
+            raise RuntimeError("发送文件消息失败")
+        return result["message_id"]
+
+    def reply_message(
+        self,
+        message_id: str,
+        content: str,
+        msg_type: str = "text",
+    ) -> str:
+        """
+        回复消息（旧版兼容接口，修复了 JSON 双重序列化 bug）。
+        :param content: 文本字符串 或 已序列化的 JSON 字符串（dict 也会自动处理）
+        :return: 新消息的 message_id
+        """
+        if not message_id:
+            raise RuntimeError("回复消息失败：message_id 为空")
+        # 统一构建 content dict
+        if msg_type == "text":
+            content_dict = {"text": content} if isinstance(content, str) else content
+        else:
+            # interactive/file/audio 等：content 可能是 dict 或 JSON 字符串
+            if isinstance(content, dict):
+                content_dict = content
+            elif isinstance(content, str):
+                try:
+                    content_dict = json.loads(content)
+                except (json.JSONDecodeError, TypeError):
+                    content_dict = {"text": content}
+            else:
+                content_dict = {"text": str(content)}
+
+        result = self._reply_message(message_id, msg_type, content_dict)
+        if not result or not result.get("success"):
+            raise RuntimeError("回复消息失败")
+        return result["message_id"]
+
+    # 旧版 send_image / send_file 方法名兼容（通过 send_image_msg / send_file_msg 调用）
+    # 如果外部代码需要直接通过 receive_id+image_key 发送，使用 send_image_msg / send_file_msg

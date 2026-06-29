@@ -172,3 +172,4 @@ agents_chat/
 # LarkMessager plugin - design documents
 plugins.v2/larkmessager/DESIGN.md
 plugins.v2/larkmessager/tasks.md
+plugins.v2/larkmessager/COMPARISON.md
