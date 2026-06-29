@@ -11,9 +11,11 @@ from fastapi.responses import JSONResponse
 
 from app.core.config import settings
 from app.core.context import Context, MediaInfo
+from app.core.event import eventmanager
 from app.plugins import _PluginBase
 from app.log import logger
 from app.schemas import CommingMessage, MessageResponse, Notification
+from app.schemas.event import Event
 from app.schemas.types import EventType, MessageChannel, NotificationType
 from app.utils.http import RequestUtils
 
@@ -36,7 +38,7 @@ class LarkMessager(_PluginBase):
     plugin_name = "Lark 应用消息通知"
     plugin_desc = "基于国际版飞书 Lark 开放平台应用的通知与消息交互插件，支持文本、卡片消息发送及消息回调交互。"
     plugin_icon = "https://raw.githubusercontent.com/jxxghp/MoviePilot-Plugins/main/icons/FeiShu_A.png"
-    plugin_version = "0.6.0"
+    plugin_version = "0.7.0"
     plugin_author = "ui-beam-9"
     author_url = "https://github.com/ui-beam-9"
     plugin_config_prefix = "larkmessager_"
@@ -71,6 +73,10 @@ class LarkMessager(_PluginBase):
         对标内置 FeishuModule 的全部消息链方法。
         """
         if not self._enabled or not self._client:
+            logger.debug(
+                "LarkMessager get_module 返回空字典：enabled=%s, client=%s",
+                self._enabled, bool(self._client),
+            )
             return {}
         return {
             "message_parser": self.message_parser,
@@ -87,6 +93,51 @@ class LarkMessager(_PluginBase):
             "add_feishu_message_reaction": self.add_feishu_message_reaction,
             "delete_feishu_message_reaction": self.delete_feishu_message_reaction,
         }
+
+    # ================================================================== #
+    #  MessageAction 事件处理 — 接收 [PLUGIN] 前缀的按钮回调
+    #  对标系统 MessageChain._handle_callback 的 [PLUGIN] 分支
+    # ================================================================== #
+    @eventmanager.register(EventType.MessageAction)
+    def on_message_action(self, event: Event):
+        """
+        监听 EventType.MessageAction 事件，处理 [PLUGIN]LarkMessager|xxx 格式的按钮回调。
+        当系统 MessageChain._handle_callback 收到 [PLUGIN] 前缀的 callback_data 时，
+        会广播此事件，plugin_id 为去掉前缀的插件类名，text 为 | 后的内容。
+        """
+        event_data = event.event_data or {}
+        plugin_id = event_data.get("plugin_id")
+        if plugin_id != self.__class__.__name__:
+            return
+
+        text = event_data.get("text") or ""
+        userid = event_data.get("userid") or ""
+        channel = event_data.get("channel")
+        source = event_data.get("source")
+        original_message_id = event_data.get("original_message_id") or ""
+        original_chat_id = event_data.get("original_chat_id") or ""
+
+        logger.info(
+            "LarkMessager 收到 MessageAction 回调：text=%s, userid=%s",
+            text, userid,
+        )
+
+        # 已知的插件交互动作
+        if text == "test_ok":
+            # 测试确认按钮 — 通过 MessageChain 路由回来的情况
+            if self._client:
+                try:
+                    self._client.reply_message(
+                        original_message_id,
+                        "✅ 测试确认成功！LarkMessager 插件卡片交互正常工作。",
+                        msg_type="text",
+                    )
+                except Exception as e:
+                    logger.error("回复测试确认消息失败：%s", e)
+            return
+
+        # 其它已知动作可在此扩展
+        logger.info("LarkMessager MessageAction：未处理的动作 text=%s", text)
 
     # ================================================================== #
     #  message_parser — 解析来自 /api/v1/message 的消息 payload
@@ -188,15 +239,49 @@ class LarkMessager(_PluginBase):
     # ================================================================== #
     def post_message(self, message: Notification, **kwargs) -> None:
         if not self._enabled or not self._client:
+            logger.debug(
+                "LarkMessager post_message 跳过：enabled=%s, client=%s, mtype=%s",
+                self._enabled, bool(self._client),
+                message.mtype.value if message.mtype else None,
+            )
             return
+
+        logger.info(
+            "LarkMessager post_message 收到通知：mtype=%s, title=%s, userid=%s",
+            message.mtype.value if message.mtype else None,
+            message.title, message.userid,
+        )
 
         # 场景类型过滤
         if self._switchs and message.mtype:
             if message.mtype.value not in self._switchs:
+                logger.info(
+                    "LarkMessager 通知被 switchs 过滤：mtype=%s, switchs=%s",
+                    message.mtype.value, self._switchs,
+                )
                 return
 
         userid, chat_id, receive_id_type = self._resolve_message_target(message)
         original_message_id = str(message.original_message_id) if message.original_message_id else None
+
+        # 广播通知无明确目标时，回退到插件配置的默认用户/群聊
+        if not userid and not chat_id:
+            userid = self._user_id or None
+            chat_id = self._chat_id or None
+            receive_id_type = "open_id" if userid else None
+            logger.debug(
+                "LarkMessager 广播通知回退默认目标：userid=%s, chat_id=%s",
+                userid, chat_id,
+            )
+
+        if not userid and not chat_id:
+            logger.warning("LarkMessager post_message 无发送目标：userid 和 chat_id 均为空，请配置默认通知用户或群聊")
+            return
+
+        logger.info(
+            "LarkMessager post_message 发送通知：userid=%s, chat_id=%s, receive_id_type=%s",
+            userid, chat_id, receive_id_type,
+        )
 
         if message.image and message.file_path:
             # 图文+文件：先发图文卡片，再发文件
@@ -244,6 +329,14 @@ class LarkMessager(_PluginBase):
                 return
 
         userid, chat_id, receive_id_type = self._resolve_message_target(message)
+        # 广播通知回退默认目标
+        if not userid and not chat_id:
+            userid = self._user_id or None
+            chat_id = self._chat_id or None
+            receive_id_type = "open_id" if userid else None
+        if not userid and not chat_id:
+            logger.warning("LarkMessager post_medias_message 无发送目标")
+            return
         lines = []
         for index, media in enumerate(medias[:10], start=1):
             title = getattr(media, "title_year", None) or getattr(media, "title", None) or "未知媒体"
@@ -271,6 +364,14 @@ class LarkMessager(_PluginBase):
                 return
 
         userid, chat_id, receive_id_type = self._resolve_message_target(message)
+        # 广播通知回退默认目标
+        if not userid and not chat_id:
+            userid = self._user_id or None
+            chat_id = self._chat_id or None
+            receive_id_type = "open_id" if userid else None
+        if not userid and not chat_id:
+            logger.warning("LarkMessager post_torrents_message 无发送目标")
+            return
         lines = []
         for index, torrent in enumerate(torrents[:10], start=1):
             torrent_info = getattr(torrent, "torrent_info", None)
@@ -324,6 +425,11 @@ class LarkMessager(_PluginBase):
 
         userid, chat_id, receive_id_type = self._resolve_message_target(message)
         original_message_id = str(message.original_message_id) if message.original_message_id else None
+        # 广播通知回退默认目标
+        if not userid and not chat_id:
+            userid = self._user_id or None
+            chat_id = self._chat_id or None
+            receive_id_type = "open_id" if userid else None
 
         if message.image and message.file_path:
             result = self._client.send_notification(
@@ -1755,16 +1861,136 @@ class LarkMessager(_PluginBase):
             return JSONResponse(_store(False, error_msg))
 
         try:
-            card = LarkClient.build_card(
-                title="LarkMessager 测试",
-                content="Lark 消息插件连接正常！这是一条测试卡片消息。",
-                buttons=[{
-                    "text": "点击确认",
-                    "action_id": "test_ok",
-                    "value": "ok",
-                    "type": "primary",
-                }],
-            )
+            from datetime import datetime
+            now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            # 构建精美测试卡片（schema 2.0，带 header 模板色 + 分隔线 + 字段布局）
+            card = {
+                "schema": "2.0",
+                "config": {
+                    "wide_screen_mode": True,
+                    "enable_forward": True,
+                    "update_multi": True,
+                    "summary": {"content": "LarkMessager 连接测试"},
+                },
+                "header": {
+                    "template": "blue",
+                    "title": {
+                        "tag": "plain_text",
+                        "content": "LarkMessager 连接测试",
+                    },
+                },
+                "body": {
+                    "direction": "vertical",
+                    "padding": "12px 12px 12px 12px",
+                    "elements": [
+                        {
+                            "tag": "hr",
+                        },
+                        {
+                            "tag": "column_set",
+                            "flex_mode": "none:spread",
+                            "background_style": "grey",
+                            "columns": [
+                                {
+                                    "tag": "column",
+                                    "width": "weighted",
+                                    "weight": 1,
+                                    "elements": [
+                                        {
+                                            "tag": "markdown",
+                                            "content": "**状态**",
+                                        },
+                                        {
+                                            "tag": "markdown",
+                                            "content": "**连接正常**",
+                                        },
+                                    ],
+                                },
+                                {
+                                    "tag": "column",
+                                    "width": "weighted",
+                                    "weight": 1,
+                                    "elements": [
+                                        {
+                                            "tag": "markdown",
+                                            "content": "**版本**",
+                                        },
+                                        {
+                                            "tag": "markdown",
+                                            "content": f"v{self.plugin_version}",
+                                        },
+                                    ],
+                                },
+                                {
+                                    "tag": "column",
+                                    "width": "weighted",
+                                    "weight": 1,
+                                    "elements": [
+                                        {
+                                            "tag": "markdown",
+                                            "content": "**时间**",
+                                        },
+                                        {
+                                            "tag": "markdown",
+                                            "content": now,
+                                        },
+                                    ],
+                                },
+                            ],
+                        },
+                        {
+                            "tag": "hr",
+                        },
+                        {
+                            "tag": "markdown",
+                            "content": (
+                                "Lark 消息插件连接正常！这是一条测试卡片消息。"
+                                "\n\n如果看到此消息并能正常交互，说明 **Webhook → 插件 → Lark API** "
+                                "全链路已打通"
+                            ),
+                        },
+                        {
+                            "tag": "column_set",
+                            "flex_mode": "none",
+                            "columns": [
+                                {
+                                    "tag": "column",
+                                    "width": "weighted",
+                                    "weight": 1,
+                                    "elements": [
+                                        {
+                                            "tag": "button",
+                                            "text": {"tag": "plain_text", "content": "点击确认"},
+                                            "type": "primary",
+                                            "behaviors": [
+                                                {"type": "callback", "value": {"callback_data": "test_ok"}}
+                                            ],
+                                        },
+                                    ],
+                                },
+                                {
+                                    "tag": "column",
+                                    "width": "weighted",
+                                    "weight": 1,
+                                    "elements": [
+                                        {
+                                            "tag": "button",
+                                            "text": {"tag": "plain_text", "content": "查看文档"},
+                                            "type": "default",
+                                            "behaviors": [
+                                                {
+                                                    "type": "open_url",
+                                                    "default_url": "https://open.larksuite.com/document/home/",
+                                                }
+                                            ],
+                                        },
+                                    ],
+                                },
+                            ],
+                        },
+                    ],
+                },
+            }
             sent_ids = []
             for rid, rid_type in targets:
                 mid = self._client.send_card(rid, card, rid_type)

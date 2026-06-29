@@ -380,9 +380,13 @@ class LarkClient:
             return result
 
         image_key = self._upload_remote_image(message.image)
+        header_template = self._header_template_for_mtype(
+            message.mtype.value if message.mtype else None
+        )
         payload = self.build_card_v2(
             title=message.title, text=message.text, link=message.link,
             buttons=message.buttons, image_key=image_key,
+            header_template=header_template,
         )
         try:
             if original_message_id:
@@ -640,6 +644,26 @@ class LarkClient:
                 card_rows.append(row_dict)
         return card_rows
 
+    # 通知类型 -> header 模板色映射
+    _MTYPE_COLOR_MAP = {
+        "资源下载": "blue",
+        "整理入库": "turquoise",
+        "订阅": "green",
+        "站点": "yellow",
+        "媒体服务器": "purple",
+        "手动处理": "red",
+        "插件": "blue",
+        "智能体": "indigo",
+        "其它": "blue",
+    }
+
+    @classmethod
+    def _header_template_for_mtype(cls, mtype: Optional[str]) -> str:
+        """根据消息类型返回 header 模板色。"""
+        if not mtype:
+            return "blue"
+        return cls._MTYPE_COLOR_MAP.get(str(mtype), "blue")
+
     @classmethod
     def build_card_v2(
         cls,
@@ -648,9 +672,11 @@ class LarkClient:
         link: Optional[str],
         buttons: Optional[List[List[dict]]],
         image_key: Optional[str] = None,
+        header_template: Optional[str] = None,
     ) -> Dict[str, Any]:
-        """构建 Lark schema 2.0 交互卡片（对标 Feishu._build_card）。"""
+        """构建 Lark schema 2.0 交互卡片（对标 Feishu._build_card，增加 header 样式）。"""
         elements: List[dict] = []
+        has_header = bool(title)
         if image_key:
             elements.append({
                 "tag": "img",
@@ -658,20 +684,49 @@ class LarkClient:
                 "alt": {"tag": "plain_text", "content": title or "图片"},
                 "mode": "fit_horizontal",
             })
+        # 有 header 标题栏时，body 里不再重复显示标题；无 header 时 body 内显示 heading 标题
         text_margin = "12px 12px 0px 12px" if image_key else None
         body_margin = "4px 12px 12px 12px" if image_key else None
         action_margin = "0px 12px 12px 12px" if image_key else None
-        title_section = cls._build_markdown_section(title, text_size="heading", margin=text_margin)
-        body_section = cls._build_markdown_section(
-            cls._build_message_text(title=None, text=text, link=link),
-            text_size="normal", margin=body_margin,
-        )
+
+        title_section = None
+        if not has_header and title:
+            title_section = cls._build_markdown_section(title, text_size="heading", margin=text_margin)
+
+        body_raw = cls._build_message_text(title=None, text=text, link=link)
+        body_section = cls._build_markdown_section(body_raw, text_size="normal", margin=body_margin) if body_raw else None
+
         if title_section:
             elements.append(title_section)
+        # 正文样式处理
         if body_section:
-            elements.append(body_section)
-        elements.extend(cls._card_actions(buttons, margin=action_margin))
-        return {
+            # 有图片时：文字用灰色背景信息栏包裹 + 前面加分隔线
+            if image_key:
+                elements.append({"tag": "hr"})
+                elements.append({
+                    "tag": "column_set",
+                    "flex_mode": "none",
+                    "background_style": "grey",
+                    "columns": [
+                        {
+                            "tag": "column",
+                            "width": "weighted",
+                            "weight": 1,
+                            "elements": [body_section],
+                        },
+                    ],
+                })
+            else:
+                if title_section:
+                    elements.append({"tag": "hr"})
+                elements.append(body_section)
+        # 按钮处理
+        actions = cls._card_actions(buttons, margin=action_margin)
+        if body_section and actions:
+            elements.append({"tag": "hr"})
+        elements.extend(actions)
+
+        card: Dict[str, Any] = {
             "schema": "2.0",
             "config": {
                 "wide_screen_mode": True,
@@ -685,6 +740,16 @@ class LarkClient:
                 "elements": elements,
             },
         }
+        # 添加 header（模板色标题栏）
+        if has_header:
+            card["header"] = {
+                "template": header_template or "blue",
+                "title": {
+                    "tag": "plain_text",
+                    "content": title,
+                },
+            }
+        return card
 
     # ------------------------------------------------------------------ #
     #  兼容旧接口：保留 build_card 给测试端点使用
@@ -715,6 +780,7 @@ class LarkClient:
         return LarkClient.build_card_v2(
             title=title, text=content, link=link,
             buttons=v2_buttons, image_key=img_key,
+            header_template=color,
         )
 
     @staticmethod
