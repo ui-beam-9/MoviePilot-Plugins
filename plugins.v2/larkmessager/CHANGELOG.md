@@ -1,5 +1,35 @@
 # LarkMessager 更新日志
 
+## v0.7.0 - 2026-06-30
+
+### 新增
+
+- **按钮回调支持**：注册 `EventType.MessageAction` 事件处理器，支持 `[PLUGIN]LarkMessager|action` 格式的按钮回调路由
+- **广播通知回退**：`post_message` / `post_medias_message` / `post_torrents_message` / `send_direct_message` 无明确目标时自动回退默认用户/群聊
+- **全链路诊断日志**：`get_module` / `post_message` / `_switchs` 过滤等关键节点添加 debug/info/warning 日志
+
+### 优化
+
+- **通知卡片样式**：通知类型 → header 模板色映射（下载→blue, 入库→turquoise, 订阅→green 等）
+- **卡片视觉层次**：header 标题栏 + 分隔线 + 灰色信息栏
+- **测试卡片美化**：schema 2.0，header 模板色 + 三列字段布局 + 双按钮
+
+## v0.6.0 - 2026-06-29
+
+### 新增
+
+- **全面对齐内置飞书模块**：通过 `get_module` 注册 13 个消息链方法到系统 MessageChain
+- **入站消息转发**：走 `_forward_to_message_chain` POST 到 `/api/v1/message`，与内置飞书模块完全一致
+- **流式卡片**：支持 CardKit API（创建/更新/关闭），Agent 场景逐字输出
+- **表情回应**：`mark_message_processing_started/finished` 标记处理状态
+- **资源下载**：图片/文件/语音消息收发，富文本解析
+- **消息编辑**：`edit_message` 支持流式卡片更新和普通卡片编辑
+
+### 修复
+
+- 修复 `reply_message` JSON 双重序列化 bug
+- 卡片升级到 schema 2.0
+
 ## v0.5.0 - 2026-06-29
 
 ### 优化
