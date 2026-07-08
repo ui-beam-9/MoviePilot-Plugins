@@ -341,8 +341,13 @@ class LarkClient:
         original_message_id: Optional[str] = None,
         default_open_id: Optional[str] = None,
         default_chat_id: Optional[str] = None,
+        image_items: Optional[List[Dict[str, Any]]] = None,
     ) -> Optional[dict]:
-        """发送通知消息（对标 Feishu.send_notification）。"""
+        """发送通知消息（对标 Feishu.send_notification）。
+
+        image_items: 可选的图文列表项，每项 {"title": str, "url": str}，
+            用于媒体/种子选择列表场景，将每个条目的海报图上传并渲染到卡片。
+        """
         from app.schemas.types import NotificationType
 
         is_streaming_agent_text = (
@@ -379,7 +384,23 @@ class LarkClient:
                 stream_meta["sent_image_urls"] = sent_image_urls
             return result
 
-        image_key = self._upload_remote_image(message.image)
+        # 图文列表场景（媒体/种子列表）：将每个条目的海报图上传并渲染到卡片
+        image_items_with_keys = None
+        if image_items:
+            built_items = []
+            for item in image_items:
+                if not isinstance(item, dict):
+                    continue
+                url = item.get("url")
+                key = self._upload_remote_image(url) if url else None
+                built = {"title": item.get("title") or ""}
+                if key:
+                    built["image_key"] = key
+                built_items.append(built)
+            if built_items:
+                image_items_with_keys = built_items
+
+        image_key = None if image_items_with_keys else self._upload_remote_image(message.image)
         header_template = self._header_template_for_mtype(
             message.mtype.value if message.mtype else None
         )
@@ -387,6 +408,7 @@ class LarkClient:
             title=message.title, text=message.text, link=message.link,
             buttons=message.buttons, image_key=image_key,
             header_template=header_template,
+            image_items=image_items_with_keys,
         )
         try:
             if original_message_id:
@@ -673,11 +695,50 @@ class LarkClient:
         buttons: Optional[List[List[dict]]],
         image_key: Optional[str] = None,
         header_template: Optional[str] = None,
+        image_items: Optional[List[Dict[str, Any]]] = None,
     ) -> Dict[str, Any]:
         """构建 Lark schema 2.0 交互卡片（对标 Feishu._build_card，增加 header 样式）。"""
         elements: List[dict] = []
         has_header = bool(title)
-        if image_key:
+        # 图文列表项：每项 [海报 | 标题] 一行（用于媒体/种子列表场景，避免仅发文字）
+        has_image = bool(image_key)
+        if image_items:
+            for item in image_items:
+                item_title = item.get("title") or ""
+                item_key = item.get("image_key")
+                if item_key:
+                    elements.append({
+                        "tag": "column_set",
+                        "flex_mode": "none",
+                        "columns": [
+                            {
+                                "tag": "column",
+                                "width": "weighted",
+                                "weight": 1,
+                                "elements": [{
+                                    "tag": "img",
+                                    "img_key": item_key,
+                                    "alt": {"tag": "plain_text", "content": item_title or "图片"},
+                                    "mode": "fit_horizontal",
+                                }],
+                            },
+                            {
+                                "tag": "column",
+                                "width": "weighted",
+                                "weight": 2,
+                                "elements": [cls._build_markdown_section(item_title, text_size="normal")],
+                            },
+                        ],
+                    })
+                    has_image = True
+                else:
+                    section = cls._build_markdown_section(item_title, text_size="normal")
+                    if section:
+                        elements.append(section)
+                elements.append({"tag": "hr"})
+            if elements and elements[-1].get("tag") == "hr":
+                elements.pop()
+        elif image_key:
             elements.append({
                 "tag": "img",
                 "img_key": image_key,
@@ -685,9 +746,9 @@ class LarkClient:
                 "mode": "fit_horizontal",
             })
         # 有 header 标题栏时，body 里不再重复显示标题；无 header 时 body 内显示 heading 标题
-        text_margin = "12px 12px 0px 12px" if image_key else None
-        body_margin = "4px 12px 12px 12px" if image_key else None
-        action_margin = "0px 12px 12px 12px" if image_key else None
+        text_margin = "12px 12px 0px 12px" if has_image else None
+        body_margin = "4px 12px 12px 12px" if has_image else None
+        action_margin = "0px 12px 12px 12px" if has_image else None
 
         title_section = None
         if not has_header and title:
@@ -701,7 +762,7 @@ class LarkClient:
         # 正文样式处理
         if body_section:
             # 有图片时：文字用灰色背景信息栏包裹 + 前面加分隔线
-            if image_key:
+            if has_image:
                 elements.append({"tag": "hr"})
                 elements.append({
                     "tag": "column_set",
@@ -736,7 +797,7 @@ class LarkClient:
             },
             "body": {
                 "direction": "vertical",
-                "padding": "0px 0px 0px 0px" if image_key else "12px 12px 12px 12px",
+                "padding": "0px 0px 0px 0px" if has_image else "12px 12px 12px 12px",
                 "elements": elements,
             },
         }

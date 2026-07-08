@@ -1,5 +1,18 @@
 # LarkMessager 更新日志
 
+## v0.8.0 - 2026-07-09
+
+### 修复
+
+- **列表场景补全海报图**：`post_medias_message`（媒体选择列表）与 `post_torrents_message`（资源选择列表）原先只发纯文字，现改为图文卡片——每个条目带媒体海报（取自 `MediaInfo.get_message_image()` / `Context.media_info`），与标题并排展示，翻页时同样生效。
+- **卡片渲染支持图文列表**：`build_card_v2` 新增 `image_items` 参数，每项渲染为 `[海报 | 标题]` 一行（`column_set`）；无海报的条目回退为纯文字行。
+- **通知发送支持图文列表**：`send_notification` 新增 `image_items` 参数，自动上传每个条目海报并渲染到卡片；单图（`message.image`）路径保持原逻辑不受影响。
+
+### 说明
+
+- 单条通知（下载完成 / 整理入库 / 订阅等）此前已通过 `message.image` 嵌入卡片，本次未改动其路径。
+- 点击选择按钮后，原卡片会被 `edit_message` 更新为「已选择：XXX」反馈（文字），此为预期行为。
+
 ## v0.7.0 - 2026-06-30
 
 ### 新增

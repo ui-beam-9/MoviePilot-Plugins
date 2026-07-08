@@ -38,7 +38,7 @@ class LarkMessager(_PluginBase):
     plugin_name = "Lark 应用消息通知"
     plugin_desc = "基于国际版飞书 Lark 开放平台应用的通知与消息交互插件，支持文本、卡片消息发送及消息回调交互。"
     plugin_icon = "https://raw.githubusercontent.com/jxxghp/MoviePilot-Plugins/main/icons/FeiShu_A.png"
-    plugin_version = "0.7.0"
+    plugin_version = "0.8.0"
     plugin_author = "ui-beam-9"
     author_url = "https://github.com/ui-beam-9"
     plugin_config_prefix = "larkmessager_"
@@ -337,12 +337,18 @@ class LarkMessager(_PluginBase):
         if not userid and not chat_id:
             logger.warning("LarkMessager post_medias_message 无发送目标")
             return
-        lines = []
+        # 构建图文列表：每个媒体带海报图，避免仅发文字
+        image_items = []
         for index, media in enumerate(medias[:10], start=1):
             title = getattr(media, "title_year", None) or getattr(media, "title", None) or "未知媒体"
-            lines.append(f"{index}. {title}")
+            numbered = f"{index}. {title}"
+            poster = self._extract_poster(media)
+            if poster:
+                image_items.append({"title": numbered, "url": poster})
+            else:
+                image_items.append({"title": numbered})
         proxy_message = Notification(
-            title=message.title, text="\n".join(lines),
+            title=message.title, text=None,
             link=message.link, buttons=message.buttons,
             userid=message.userid, targets=message.targets,
         )
@@ -351,6 +357,7 @@ class LarkMessager(_PluginBase):
             userid=userid or message.userid, chat_id=chat_id,
             receive_id_type=receive_id_type,
             default_open_id=self._user_id or None, default_chat_id=self._chat_id or None,
+            image_items=image_items or None,
         )
 
     # ================================================================== #
@@ -372,13 +379,19 @@ class LarkMessager(_PluginBase):
         if not userid and not chat_id:
             logger.warning("LarkMessager post_torrents_message 无发送目标")
             return
-        lines = []
+        # 构建图文列表：每个种子带媒体海报图，避免仅发文字
+        image_items = []
         for index, torrent in enumerate(torrents[:10], start=1):
             torrent_info = getattr(torrent, "torrent_info", None)
             title = getattr(torrent_info, "title", None) or getattr(torrent_info, "site_name", None) or "未知种子"
-            lines.append(f"{index}. {title}")
+            numbered = f"{index}. {title}"
+            poster = self._extract_poster(getattr(torrent, "media_info", None))
+            if poster:
+                image_items.append({"title": numbered, "url": poster})
+            else:
+                image_items.append({"title": numbered})
         proxy_message = Notification(
-            title=message.title, text="\n".join(lines),
+            title=message.title, text=None,
             link=message.link, buttons=message.buttons,
             userid=message.userid, targets=message.targets,
         )
@@ -387,6 +400,7 @@ class LarkMessager(_PluginBase):
             userid=userid or message.userid, chat_id=chat_id,
             receive_id_type=receive_id_type,
             default_open_id=self._user_id or None, default_chat_id=self._chat_id or None,
+            image_items=image_items or None,
         )
 
     # ================================================================== #
@@ -679,6 +693,28 @@ class LarkMessager(_PluginBase):
                 receive_id_type = "user_id"
 
         return userid, chat_id, receive_id_type
+
+    # ================================================================== #
+    #  海报图片提取（用于媒体/种子列表场景）
+    # ================================================================== #
+    @staticmethod
+    def _extract_poster(obj) -> Optional[str]:
+        """从 MediaInfo / Context 等对象安全提取海报图片 URL。"""
+        if obj is None:
+            return None
+        get_img = getattr(obj, "get_message_image", None)
+        if callable(get_img):
+            try:
+                val = get_img()
+                if val:
+                    return str(val)
+            except Exception:
+                pass
+        for attr in ("message_image", "poster_path", "poster"):
+            val = getattr(obj, attr, None)
+            if val:
+                return str(val)
+        return None
 
     # ================================================================== #
     #  用户名解析（对标 Feishu._resolve_username）
