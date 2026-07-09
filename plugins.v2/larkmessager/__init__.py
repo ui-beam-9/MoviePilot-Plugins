@@ -38,7 +38,7 @@ class LarkMessager(_PluginBase):
     plugin_name = "Lark 应用消息通知"
     plugin_desc = "基于国际版飞书 Lark 开放平台应用的通知与消息交互插件，支持文本、卡片消息发送及消息回调交互。"
     plugin_icon = "https://raw.githubusercontent.com/jxxghp/MoviePilot-Plugins/main/icons/FeiShu_A.png"
-    plugin_version = "0.8.0"
+    plugin_version = "0.9.0"
     plugin_author = "ui-beam-9"
     author_url = "https://github.com/ui-beam-9"
     plugin_config_prefix = "larkmessager_"
@@ -75,7 +75,8 @@ class LarkMessager(_PluginBase):
         if not self._enabled or not self._client:
             logger.debug(
                 "LarkMessager get_module 返回空字典：enabled=%s, client=%s",
-                self._enabled, bool(self._client),
+                self._enabled,
+                bool(self._client),
             )
             return {}
         return {
@@ -119,7 +120,8 @@ class LarkMessager(_PluginBase):
 
         logger.info(
             "LarkMessager 收到 MessageAction 回调：text=%s, userid=%s",
-            text, userid,
+            text,
+            userid,
         )
 
         # 已知的插件交互动作
@@ -150,7 +152,9 @@ class LarkMessager(_PluginBase):
             return None
 
         try:
-            message = json.loads(body) if isinstance(body, (str, bytes, bytearray)) else body
+            message = (
+                json.loads(body) if isinstance(body, (str, bytes, bytearray)) else body
+            )
         except Exception:
             return None
         if not isinstance(message, dict):
@@ -159,7 +163,9 @@ class LarkMessager(_PluginBase):
         sender = message.get("sender") or {}
         open_id = sender.get("open_id") or ""
         user_id = sender.get("user_id") or ""
-        username = self._resolve_username(open_id, user_id, sender.get("name") or open_id or user_id)
+        username = self._resolve_username(
+            open_id, user_id, sender.get("name") or open_id or user_id
+        )
         userid = open_id or user_id or ""
         if not userid:
             return None
@@ -169,7 +175,9 @@ class LarkMessager(_PluginBase):
             callback_data = message.get("callback_data") or ""
             if not callback_data:
                 return None
-            if str(callback_data).strip().startswith("/") and self._should_reject_admin_command(open_id, user_id):
+            if str(callback_data).strip().startswith(
+                "/"
+            ) and self._should_reject_admin_command(open_id, user_id):
                 if self._client:
                     self._client.send_text(
                         "只有管理员才有权限执行此命令",
@@ -197,7 +205,11 @@ class LarkMessager(_PluginBase):
         images = CommingMessage.MessageImage.normalize_list(message.get("images"))
         audio_refs = None
         if isinstance(message.get("audio_refs"), list):
-            audio_refs = [str(item).strip() for item in message.get("audio_refs") if str(item).strip()] or None
+            audio_refs = [
+                str(item).strip()
+                for item in message.get("audio_refs")
+                if str(item).strip()
+            ] or None
         files = None
         if isinstance(message.get("files"), list):
             normalized_files = []
@@ -241,7 +253,8 @@ class LarkMessager(_PluginBase):
         if not self._enabled or not self._client:
             logger.debug(
                 "LarkMessager post_message 跳过：enabled=%s, client=%s, mtype=%s",
-                self._enabled, bool(self._client),
+                self._enabled,
+                bool(self._client),
                 message.mtype.value if message.mtype else None,
             )
             return
@@ -249,7 +262,8 @@ class LarkMessager(_PluginBase):
         logger.info(
             "LarkMessager post_message 收到通知：mtype=%s, title=%s, userid=%s",
             message.mtype.value if message.mtype else None,
-            message.title, message.userid,
+            message.title,
+            message.userid,
         )
 
         # 场景类型过滤
@@ -257,12 +271,15 @@ class LarkMessager(_PluginBase):
             if message.mtype.value not in self._switchs:
                 logger.info(
                     "LarkMessager 通知被 switchs 过滤：mtype=%s, switchs=%s",
-                    message.mtype.value, self._switchs,
+                    message.mtype.value,
+                    self._switchs,
                 )
                 return
 
         userid, chat_id, receive_id_type = self._resolve_message_target(message)
-        original_message_id = str(message.original_message_id) if message.original_message_id else None
+        original_message_id = (
+            str(message.original_message_id) if message.original_message_id else None
+        )
 
         # 广播通知无明确目标时，回退到插件配置的默认用户/群聊
         if not userid and not chat_id:
@@ -271,57 +288,87 @@ class LarkMessager(_PluginBase):
             receive_id_type = "open_id" if userid else None
             logger.debug(
                 "LarkMessager 广播通知回退默认目标：userid=%s, chat_id=%s",
-                userid, chat_id,
+                userid,
+                chat_id,
             )
 
         if not userid and not chat_id:
-            logger.warning("LarkMessager post_message 无发送目标：userid 和 chat_id 均为空，请配置默认通知用户或群聊")
+            logger.warning(
+                "LarkMessager post_message 无发送目标：userid 和 chat_id 均为空，请配置默认通知用户或群聊"
+            )
             return
 
         logger.info(
             "LarkMessager post_message 发送通知：userid=%s, chat_id=%s, receive_id_type=%s",
-            userid, chat_id, receive_id_type,
+            userid,
+            chat_id,
+            receive_id_type,
         )
 
         if message.image and message.file_path:
             # 图文+文件：先发图文卡片，再发文件
             self._client.send_notification(
-                message=message.model_copy(update={"file_path": None, "file_name": None}),
-                userid=userid, chat_id=chat_id, receive_id_type=receive_id_type,
+                message=message.model_copy(
+                    update={"file_path": None, "file_name": None}
+                ),
+                userid=userid,
+                chat_id=chat_id,
+                receive_id_type=receive_id_type,
                 original_message_id=original_message_id,
-                default_open_id=self._user_id or None, default_chat_id=self._chat_id or None,
+                default_open_id=self._user_id or None,
+                default_chat_id=self._chat_id or None,
             )
             self._client.send_file(
-                file_path=message.file_path, userid=userid, chat_id=chat_id,
-                file_name=message.file_name, receive_id_type=receive_id_type,
+                file_path=message.file_path,
+                userid=userid,
+                chat_id=chat_id,
+                file_name=message.file_name,
+                receive_id_type=receive_id_type,
                 original_message_id=original_message_id,
-                default_open_id=self._user_id or None, default_chat_id=self._chat_id or None,
+                default_open_id=self._user_id or None,
+                default_chat_id=self._chat_id or None,
             )
         elif message.file_path:
             self._client.send_file(
-                file_path=message.file_path, userid=userid, chat_id=chat_id,
-                title=message.title, text=message.text, file_name=message.file_name,
-                receive_id_type=receive_id_type, original_message_id=original_message_id,
-                default_open_id=self._user_id or None, default_chat_id=self._chat_id or None,
+                file_path=message.file_path,
+                userid=userid,
+                chat_id=chat_id,
+                title=message.title,
+                text=message.text,
+                file_name=message.file_name,
+                receive_id_type=receive_id_type,
+                original_message_id=original_message_id,
+                default_open_id=self._user_id or None,
+                default_chat_id=self._chat_id or None,
             )
         elif message.voice_path:
             self._client.send_voice(
-                voice_path=message.voice_path, userid=userid, chat_id=chat_id,
-                caption=message.voice_caption, receive_id_type=receive_id_type,
+                voice_path=message.voice_path,
+                userid=userid,
+                chat_id=chat_id,
+                caption=message.voice_caption,
+                receive_id_type=receive_id_type,
                 original_message_id=original_message_id,
-                default_open_id=self._user_id or None, default_chat_id=self._chat_id or None,
+                default_open_id=self._user_id or None,
+                default_chat_id=self._chat_id or None,
             )
         else:
             self._client.send_notification(
-                message=message, userid=userid, chat_id=chat_id,
-                receive_id_type=receive_id_type, original_message_id=original_message_id,
-                default_open_id=self._user_id or None, default_chat_id=self._chat_id or None,
+                message=message,
+                userid=userid,
+                chat_id=chat_id,
+                receive_id_type=receive_id_type,
+                original_message_id=original_message_id,
+                default_open_id=self._user_id or None,
+                default_chat_id=self._chat_id or None,
             )
 
     # ================================================================== #
     #  post_medias_message — 发送媒体列表（对标 FeishuModule.post_medias_message）
     # ================================================================== #
-    def post_medias_message(self, message: Notification, medias: List[MediaInfo]) -> None:
+    def post_medias_message(
+        self, message: Notification, medias: List[MediaInfo]
+    ) -> None:
         if not self._enabled or not self._client:
             return
         if self._switchs and message.mtype:
@@ -340,7 +387,11 @@ class LarkMessager(_PluginBase):
         # 构建图文列表：每个媒体带海报图，避免仅发文字
         image_items = []
         for index, media in enumerate(medias[:10], start=1):
-            title = getattr(media, "title_year", None) or getattr(media, "title", None) or "未知媒体"
+            title = (
+                getattr(media, "title_year", None)
+                or getattr(media, "title", None)
+                or "未知媒体"
+            )
             numbered = f"{index}. {title}"
             poster = self._extract_poster(media)
             if poster:
@@ -348,22 +399,29 @@ class LarkMessager(_PluginBase):
             else:
                 image_items.append({"title": numbered})
         proxy_message = Notification(
-            title=message.title, text=None,
-            link=message.link, buttons=message.buttons,
-            userid=message.userid, targets=message.targets,
+            title=message.title,
+            text=None,
+            link=message.link,
+            buttons=message.buttons,
+            userid=message.userid,
+            targets=message.targets,
         )
         self._client.send_notification(
             message=proxy_message,
-            userid=userid or message.userid, chat_id=chat_id,
+            userid=userid or message.userid,
+            chat_id=chat_id,
             receive_id_type=receive_id_type,
-            default_open_id=self._user_id or None, default_chat_id=self._chat_id or None,
+            default_open_id=self._user_id or None,
+            default_chat_id=self._chat_id or None,
             image_items=image_items or None,
         )
 
     # ================================================================== #
     #  post_torrents_message — 发送种子列表（对标 FeishuModule.post_torrents_message）
     # ================================================================== #
-    def post_torrents_message(self, message: Notification, torrents: List[Context]) -> None:
+    def post_torrents_message(
+        self, message: Notification, torrents: List[Context]
+    ) -> None:
         if not self._enabled or not self._client:
             return
         if self._switchs and message.mtype:
@@ -383,7 +441,11 @@ class LarkMessager(_PluginBase):
         image_items = []
         for index, torrent in enumerate(torrents[:10], start=1):
             torrent_info = getattr(torrent, "torrent_info", None)
-            title = getattr(torrent_info, "title", None) or getattr(torrent_info, "site_name", None) or "未知种子"
+            title = (
+                getattr(torrent_info, "title", None)
+                or getattr(torrent_info, "site_name", None)
+                or "未知种子"
+            )
             numbered = f"{index}. {title}"
             poster = self._extract_poster(getattr(torrent, "media_info", None))
             if poster:
@@ -391,15 +453,20 @@ class LarkMessager(_PluginBase):
             else:
                 image_items.append({"title": numbered})
         proxy_message = Notification(
-            title=message.title, text=None,
-            link=message.link, buttons=message.buttons,
-            userid=message.userid, targets=message.targets,
+            title=message.title,
+            text=None,
+            link=message.link,
+            buttons=message.buttons,
+            userid=message.userid,
+            targets=message.targets,
         )
         self._client.send_notification(
             message=proxy_message,
-            userid=userid or message.userid, chat_id=chat_id,
+            userid=userid or message.userid,
+            chat_id=chat_id,
             receive_id_type=receive_id_type,
-            default_open_id=self._user_id or None, default_chat_id=self._chat_id or None,
+            default_open_id=self._user_id or None,
+            default_chat_id=self._chat_id or None,
             image_items=image_items or None,
         )
 
@@ -423,8 +490,11 @@ class LarkMessager(_PluginBase):
             return False
         return self._client.edit_message(
             message_id=str(message_id),
-            title=title, text=text, buttons=buttons,
-            metadata=metadata, chat_id=str(chat_id) if chat_id else None,
+            title=title,
+            text=text,
+            buttons=buttons,
+            metadata=metadata,
+            chat_id=str(chat_id) if chat_id else None,
         )
 
     # ================================================================== #
@@ -438,7 +508,9 @@ class LarkMessager(_PluginBase):
                 return None
 
         userid, chat_id, receive_id_type = self._resolve_message_target(message)
-        original_message_id = str(message.original_message_id) if message.original_message_id else None
+        original_message_id = (
+            str(message.original_message_id) if message.original_message_id else None
+        )
         # 广播通知回退默认目标
         if not userid and not chat_id:
             userid = self._user_id or None
@@ -447,37 +519,60 @@ class LarkMessager(_PluginBase):
 
         if message.image and message.file_path:
             result = self._client.send_notification(
-                message=message.model_copy(update={"file_path": None, "file_name": None}),
-                userid=userid, chat_id=chat_id, receive_id_type=receive_id_type,
+                message=message.model_copy(
+                    update={"file_path": None, "file_name": None}
+                ),
+                userid=userid,
+                chat_id=chat_id,
+                receive_id_type=receive_id_type,
                 original_message_id=original_message_id,
-                default_open_id=self._user_id or None, default_chat_id=self._chat_id or None,
+                default_open_id=self._user_id or None,
+                default_chat_id=self._chat_id or None,
             )
             if result and result.get("success"):
                 self._client.send_file(
-                    file_path=message.file_path, userid=userid, chat_id=chat_id,
-                    file_name=message.file_name, receive_id_type=receive_id_type,
+                    file_path=message.file_path,
+                    userid=userid,
+                    chat_id=chat_id,
+                    file_name=message.file_name,
+                    receive_id_type=receive_id_type,
                     original_message_id=original_message_id,
-                    default_open_id=self._user_id or None, default_chat_id=self._chat_id or None,
+                    default_open_id=self._user_id or None,
+                    default_chat_id=self._chat_id or None,
                 )
         elif message.file_path:
             result = self._client.send_file(
-                file_path=message.file_path, userid=userid, chat_id=chat_id,
-                title=message.title, text=message.text, file_name=message.file_name,
-                receive_id_type=receive_id_type, original_message_id=original_message_id,
-                default_open_id=self._user_id or None, default_chat_id=self._chat_id or None,
+                file_path=message.file_path,
+                userid=userid,
+                chat_id=chat_id,
+                title=message.title,
+                text=message.text,
+                file_name=message.file_name,
+                receive_id_type=receive_id_type,
+                original_message_id=original_message_id,
+                default_open_id=self._user_id or None,
+                default_chat_id=self._chat_id or None,
             )
         elif message.voice_path:
             result = self._client.send_voice(
-                voice_path=message.voice_path, userid=userid, chat_id=chat_id,
-                caption=message.voice_caption, receive_id_type=receive_id_type,
+                voice_path=message.voice_path,
+                userid=userid,
+                chat_id=chat_id,
+                caption=message.voice_caption,
+                receive_id_type=receive_id_type,
                 original_message_id=original_message_id,
-                default_open_id=self._user_id or None, default_chat_id=self._chat_id or None,
+                default_open_id=self._user_id or None,
+                default_chat_id=self._chat_id or None,
             )
         else:
             result = self._client.send_notification(
-                message=message, userid=userid, chat_id=chat_id,
-                receive_id_type=receive_id_type, original_message_id=original_message_id,
-                default_open_id=self._user_id or None, default_chat_id=self._chat_id or None,
+                message=message,
+                userid=userid,
+                chat_id=chat_id,
+                receive_id_type=receive_id_type,
+                original_message_id=original_message_id,
+                default_open_id=self._user_id or None,
+                default_chat_id=self._chat_id or None,
             )
 
         if result and result.get("success"):
@@ -495,7 +590,9 @@ class LarkMessager(_PluginBase):
     #  finalize_message — 关闭流式卡片（对标 FeishuModule.finalize_message）
     # ================================================================== #
     def finalize_message(self, response: MessageResponse) -> bool:
-        if response.channel != MessageChannel.Feishu or not isinstance(response.metadata, dict):
+        if response.channel != MessageChannel.Feishu or not isinstance(
+            response.metadata, dict
+        ):
             return False
         if not self._client:
             return False
@@ -570,7 +667,9 @@ class LarkMessager(_PluginBase):
     # ================================================================== #
     #  download_feishu_image_to_data_url — 图片转 data URL（对标 FeishuModule）
     # ================================================================== #
-    def download_feishu_image_to_data_url(self, image_ref: str, source: str) -> Optional[str]:
+    def download_feishu_image_to_data_url(
+        self, image_ref: str, source: str
+    ) -> Optional[str]:
         if not image_ref or not image_ref.startswith("feishu://image/"):
             return None
         if not self._client:
@@ -586,7 +685,9 @@ class LarkMessager(_PluginBase):
         downloaded = None
         if message_id:
             downloaded = self._client.download_message_resource_bytes(
-                message_id=message_id, file_key=image_key, resource_type="image",
+                message_id=message_id,
+                file_key=image_key,
+                resource_type="image",
             )
         if not downloaded:
             downloaded = self._client.download_image_bytes(image_key)
@@ -595,6 +696,7 @@ class LarkMessager(_PluginBase):
         content, _, content_type = downloaded
         mime_type = content_type or "image/jpeg"
         import base64
+
         return f"data:{mime_type};base64,{base64.b64encode(content).decode()}"
 
     # ================================================================== #
@@ -615,11 +717,15 @@ class LarkMessager(_PluginBase):
         if len(parts) >= 2 and parts[0].startswith("om_"):
             message_id, file_key = parts[0], parts[1]
             downloaded = self._client.download_message_resource_bytes(
-                message_id=message_id, file_key=file_key, resource_type="audio",
+                message_id=message_id,
+                file_key=file_key,
+                resource_type="audio",
             )
             if not downloaded:
                 downloaded = self._client.download_message_resource_bytes(
-                    message_id=message_id, file_key=file_key, resource_type="file",
+                    message_id=message_id,
+                    file_key=file_key,
+                    resource_type="file",
                 )
         else:
             file_key = parts[0] if parts else ""
@@ -640,7 +746,9 @@ class LarkMessager(_PluginBase):
     ) -> Optional[str]:
         if not self._client or source != self._msg_source:
             return None
-        return self._client.add_message_reaction(message_id=message_id, emoji_type=emoji_type)
+        return self._client.add_message_reaction(
+            message_id=message_id, emoji_type=emoji_type
+        )
 
     # ================================================================== #
     #  delete_feishu_message_reaction — 删除表情回应（对标 FeishuModule）
@@ -650,7 +758,9 @@ class LarkMessager(_PluginBase):
     ) -> Optional[bool]:
         if not self._client or source != self._msg_source:
             return False
-        return self._client.delete_message_reaction(message_id=message_id, reaction_id=reaction_id)
+        return self._client.delete_message_reaction(
+            message_id=message_id, reaction_id=reaction_id
+        )
 
     # ================================================================== #
     #  _forward_to_message_chain — 将 payload 转发到 /api/v1/message
@@ -726,6 +836,7 @@ class LarkMessager(_PluginBase):
         """根据 Lark 绑定 ID 映射 MoviePilot 用户名。"""
         try:
             from app.db.user_oper import UserOper
+
             binding_ids = {}
             if open_id:
                 binding_ids["feishu_openid"] = open_id
@@ -742,14 +853,14 @@ class LarkMessager(_PluginBase):
     # ================================================================== #
     #  管理员权限校验（对标 Feishu._should_reject_admin_command）
     # ================================================================== #
-    def _should_reject_admin_command(self, *user_ids: Optional[Union[str, int]]) -> bool:
+    def _should_reject_admin_command(
+        self, *user_ids: Optional[Union[str, int]]
+    ) -> bool:
         """判断命令是否应因非管理员身份被拒绝。"""
         if not self._admin_users:
             return False
         candidates = [
-            str(uid).strip()
-            for uid in user_ids
-            if uid is not None and str(uid).strip()
+            str(uid).strip() for uid in user_ids if uid is not None and str(uid).strip()
         ]
         # 先做直接匹配（open_id 在 admin 列表中）
         if any(c in self._admin_users for c in candidates):
@@ -858,7 +969,10 @@ class LarkMessager(_PluginBase):
                                             "clearable": True,
                                             "density": "comfortable",
                                             "rules": [
-                                                {"required": True, "message": "App ID 不能为空"}
+                                                {
+                                                    "required": True,
+                                                    "message": "App ID 不能为空",
+                                                }
                                             ],
                                         },
                                     }
@@ -886,7 +1000,10 @@ class LarkMessager(_PluginBase):
                                             "clearable": True,
                                             "density": "comfortable",
                                             "rules": [
-                                                {"required": True, "message": "App Secret 不能为空"}
+                                                {
+                                                    "required": True,
+                                                    "message": "App Secret 不能为空",
+                                                }
                                             ],
                                         },
                                     }
@@ -1064,7 +1181,9 @@ class LarkMessager(_PluginBase):
         )
         status_color = "success" if (self._enabled and self._client) else "warning"
         status_icon = (
-            "mdi-check-circle" if (self._enabled and self._client) else "mdi-alert-circle"
+            "mdi-check-circle"
+            if (self._enabled and self._client)
+            else "mdi-alert-circle"
         )
 
         missing_card: List[dict] = []
@@ -1095,7 +1214,8 @@ class LarkMessager(_PluginBase):
                             "component": "ul",
                             "props": {"class": "mt-1 mb-0 pl-4"},
                             "content": [
-                                {"component": "li", "text": name} for name in self._config_missing
+                                {"component": "li", "text": name}
+                                for name in self._config_missing
                             ],
                         },
                     ],
@@ -1115,12 +1235,18 @@ class LarkMessager(_PluginBase):
                             "content": [
                                 {
                                     "component": "VIcon",
-                                    "props": {"color": "primary", "size": "small", "class": "mr-2"},
+                                    "props": {
+                                        "color": "primary",
+                                        "size": "small",
+                                        "class": "mr-2",
+                                    },
                                     "text": "mdi-information-outline",
                                 },
                                 {
                                     "component": "span",
-                                    "props": {"class": "text-subtitle-1 font-weight-bold"},
+                                    "props": {
+                                        "class": "text-subtitle-1 font-weight-bold"
+                                    },
                                     "text": "使用指南",
                                 },
                             ],
@@ -1143,8 +1269,14 @@ class LarkMessager(_PluginBase):
                             "props": {"class": "mb-2"},
                             "content": [
                                 {"component": "span", "text": "2. 在应用详情页 "},
-                                {"component": "strong", "text": "添加应用能力 - 机器人"},
-                                {"component": "span", "text": "（必须先添加才能收发消息）。"},
+                                {
+                                    "component": "strong",
+                                    "text": "添加应用能力 - 机器人",
+                                },
+                                {
+                                    "component": "span",
+                                    "text": "（必须先添加才能收发消息）。",
+                                },
                             ],
                         },
                         {
@@ -1153,14 +1285,20 @@ class LarkMessager(_PluginBase):
                             "content": [
                                 {"component": "span", "text": "3. 进入 "},
                                 {"component": "strong", "text": "权限管理"},
-                                {"component": "span", "text": "，开通：im:message、im:chat、contact:user.base:readonly、contact:user.id:readonly"},
+                                {
+                                    "component": "span",
+                                    "text": "，开通：im:message、im:chat、contact:user.base:readonly、contact:user.id:readonly",
+                                },
                             ],
                         },
                         {
                             "component": "div",
                             "props": {"class": "mb-2"},
                             "content": [
-                                {"component": "span", "text": "4. 配置事件订阅，将请求地址设置为："},
+                                {
+                                    "component": "span",
+                                    "text": "4. 配置事件订阅，将请求地址设置为：",
+                                },
                             ],
                         },
                         {
@@ -1179,16 +1317,26 @@ class LarkMessager(_PluginBase):
                             "props": {"class": "mb-2"},
                             "content": [
                                 {"component": "span", "text": "5. 添加 "},
-                                {"component": "strong", "text": "im.message.receive_v1"},
+                                {
+                                    "component": "strong",
+                                    "text": "im.message.receive_v1",
+                                },
                                 {"component": "span", "text": " 事件，"},
-                                {"component": "strong", "props": {"class": "text-error"}, "text": "⚠️ 然后逐个开通事件相关权限（默认未开通，不开通收不到消息！）"},
+                                {
+                                    "component": "strong",
+                                    "props": {"class": "text-error"},
+                                    "text": "⚠️ 然后逐个开通事件相关权限（默认未开通，不开通收不到消息！）",
+                                },
                             ],
                         },
                         {
                             "component": "div",
                             "props": {"class": "mb-2"},
                             "content": [
-                                {"component": "span", "text": "6. （推荐）开启加密策略，复制 "},
+                                {
+                                    "component": "span",
+                                    "text": "6. （推荐）开启加密策略，复制 ",
+                                },
                                 {"component": "strong", "text": "Encrypt Key"},
                                 {"component": "span", "text": " 和 "},
                                 {"component": "strong", "text": "Verification Token"},
@@ -1199,9 +1347,15 @@ class LarkMessager(_PluginBase):
                             "component": "div",
                             "props": {"class": "mb-2"},
                             "content": [
-                                {"component": "span", "text": "7. 发布应用版本，保存插件配置后点击 "},
+                                {
+                                    "component": "span",
+                                    "text": "7. 发布应用版本，保存插件配置后点击 ",
+                                },
                                 {"component": "strong", "text": "发送测试消息"},
-                                {"component": "span", "text": "，到 Lark 中查收测试卡片。"},
+                                {
+                                    "component": "span",
+                                    "text": "，到 Lark 中查收测试卡片。",
+                                },
                             ],
                         },
                         {
@@ -1230,7 +1384,10 @@ class LarkMessager(_PluginBase):
                         "component": "VCardItem",
                         "content": [
                             {"component": "VCardTitle", "text": "LarkMessager"},
-                            {"component": "VCardSubtitle", "text": "基于 Lark 开放平台应用的消息推送与交互"},
+                            {
+                                "component": "VCardSubtitle",
+                                "text": "基于 Lark 开放平台应用的消息推送与交互",
+                            },
                         ],
                     },
                     {
@@ -1348,27 +1505,37 @@ class LarkMessager(_PluginBase):
             test_ok = last_result.get("ok", False)
             test_msg = last_result.get("msg", "")
             test_time = last_result.get("time", "")
-            alert_text = test_msg if not test_time else f"{test_msg}\n更新时间：{test_time}"
-            components.append({
-                "component": "VCard",
-                "props": {"class": "mb-4"},
-                "content": [
-                    {"component": "VCardTitle", "text": "测试结果"},
-                    {
-                        "component": "VCardText",
-                        "content": [{
-                            "component": "VAlert",
-                            "props": {
-                                "type": "success" if test_ok else "error",
-                                "variant": "tonal",
-                                "density": "compact",
-                                "icon": "mdi-check-circle" if test_ok else "mdi-close-circle",
-                            },
-                            "text": alert_text,
-                        }],
-                    },
-                ],
-            })
+            alert_text = (
+                test_msg if not test_time else f"{test_msg}\n更新时间：{test_time}"
+            )
+            components.append(
+                {
+                    "component": "VCard",
+                    "props": {"class": "mb-4"},
+                    "content": [
+                        {"component": "VCardTitle", "text": "测试结果"},
+                        {
+                            "component": "VCardText",
+                            "content": [
+                                {
+                                    "component": "VAlert",
+                                    "props": {
+                                        "type": "success" if test_ok else "error",
+                                        "variant": "tonal",
+                                        "density": "compact",
+                                        "icon": (
+                                            "mdi-check-circle"
+                                            if test_ok
+                                            else "mdi-close-circle"
+                                        ),
+                                    },
+                                    "text": alert_text,
+                                }
+                            ],
+                        },
+                    ],
+                }
+            )
             last_result["displayed"] = True
             self.save_data("last_test_result", last_result)
 
@@ -1378,27 +1545,41 @@ class LarkMessager(_PluginBase):
             chats_ok = last_chats.get("ok", False)
             chats_msg = last_chats.get("msg", "")
             chats_time = last_chats.get("time", "")
-            chats_alert_text = chats_msg if not chats_time else f"{chats_msg}\n更新时间：{chats_time}"
-            components.append({
-                "component": "VCard",
-                "props": {"class": "mb-4"},
-                "content": [
-                    {"component": "VCardTitle", "props": {"prependIcon": "mdi-forum"}, "text": "群聊 Chat ID"},
-                    {
-                        "component": "VCardText",
-                        "content": [{
-                            "component": "VAlert",
-                            "props": {
-                                "type": "success" if chats_ok else "warning",
-                                "variant": "tonal",
-                                "density": "compact",
-                                "icon": "mdi-forum" if chats_ok else "mdi-alert-circle",
-                            },
-                            "text": chats_alert_text,
-                        }],
-                    },
-                ],
-            })
+            chats_alert_text = (
+                chats_msg if not chats_time else f"{chats_msg}\n更新时间：{chats_time}"
+            )
+            components.append(
+                {
+                    "component": "VCard",
+                    "props": {"class": "mb-4"},
+                    "content": [
+                        {
+                            "component": "VCardTitle",
+                            "props": {"prependIcon": "mdi-forum"},
+                            "text": "群聊 Chat ID",
+                        },
+                        {
+                            "component": "VCardText",
+                            "content": [
+                                {
+                                    "component": "VAlert",
+                                    "props": {
+                                        "type": "success" if chats_ok else "warning",
+                                        "variant": "tonal",
+                                        "density": "compact",
+                                        "icon": (
+                                            "mdi-forum"
+                                            if chats_ok
+                                            else "mdi-alert-circle"
+                                        ),
+                                    },
+                                    "text": chats_alert_text,
+                                }
+                            ],
+                        },
+                    ],
+                }
+            )
             last_chats["displayed"] = True
             self.save_data("last_chats", last_chats)
 
@@ -1454,7 +1635,10 @@ class LarkMessager(_PluginBase):
         body_preview = raw_body[:200].decode("utf-8", errors="replace")
         logger.info(
             "LarkMessager webhook 收到请求: method=%s, path=%s, lark_headers=%s, body_preview=%s",
-            request.method, request.url.path, lark_headers, body_preview,
+            request.method,
+            request.url.path,
+            lark_headers,
+            body_preview,
         )
 
         # 惰性初始化 crypto
@@ -1485,7 +1669,10 @@ class LarkMessager(_PluginBase):
             if not self._crypto:
                 logger.error("收到加密请求但插件未配置 Encrypt Key")
                 return JSONResponse(
-                    {"error": "encrypt_key not configured", "hint": "请在插件配置中填写 Encrypt Key"},
+                    {
+                        "error": "encrypt_key not configured",
+                        "hint": "请在插件配置中填写 Encrypt Key",
+                    },
                     status_code=400,
                 )
             try:
@@ -1498,7 +1685,9 @@ class LarkMessager(_PluginBase):
                 return JSONResponse({"error": "decrypt failed"}, status_code=400)
 
         # URL 验证（challenge）
-        if isinstance(body, dict) and ("challenge" in body or body.get("type") == "url_verification"):
+        if isinstance(body, dict) and (
+            "challenge" in body or body.get("type") == "url_verification"
+        ):
             challenge = body.get("challenge", "")
             logger.info("Lark URL 验证请求，返回 challenge")
             return JSONResponse({"challenge": challenge})
@@ -1507,9 +1696,14 @@ class LarkMessager(_PluginBase):
         if self._encrypt_key and self._crypto:
             raw_event_type = ""
             if isinstance(body, dict):
-                raw_event_type = body.get("event_type") or ((body.get("header") or {}).get("event_type", ""))
+                raw_event_type = body.get("event_type") or (
+                    (body.get("header") or {}).get("event_type", "")
+                )
             if is_encrypted:
-                logger.info("加密请求解密成功，跳过 X-Lark-Signature 校验（event_type=%s）", raw_event_type or "(unknown)")
+                logger.info(
+                    "加密请求解密成功，跳过 X-Lark-Signature 校验（event_type=%s）",
+                    raw_event_type or "(unknown)",
+                )
             elif raw_event_type == "card.action.trigger":
                 logger.info("卡片回调跳过 X-Lark-Signature 校验")
             else:
@@ -1519,30 +1713,43 @@ class LarkMessager(_PluginBase):
                 if not signature:
                     logger.warning("缺少 X-Lark-Signature 头")
                     return JSONResponse({"error": "missing signature"}, status_code=403)
-                if not self._crypto.verify_signature(signature, raw_body, timestamp, nonce):
+                if not self._crypto.verify_signature(
+                    signature, raw_body, timestamp, nonce
+                ):
                     logger.warning("X-Lark-Signature 校验失败")
-                    return JSONResponse({"error": "signature verification failed"}, status_code=403)
+                    return JSONResponse(
+                        {"error": "signature verification failed"}, status_code=403
+                    )
 
         # Token 校验
         if self._verification_token:
             body_token = ""
             if isinstance(body, dict):
-                body_token = body.get("token", "") or ((body.get("header") or {}).get("token", ""))
+                body_token = body.get("token", "") or (
+                    (body.get("header") or {}).get("token", "")
+                )
             query_token = request.query_params.get("token", "")
             req_token = body_token or query_token
             if req_token != self._verification_token:
                 logger.warning("Webhook token 校验失败")
-                return JSONResponse({"error": "token verification failed"}, status_code=403)
+                return JSONResponse(
+                    {"error": "token verification failed"}, status_code=403
+                )
 
         # 构造事件对象
-        event = LarkWebhookEvent(**body) if isinstance(body, dict) else LarkWebhookEvent()
+        event = (
+            LarkWebhookEvent(**body) if isinstance(body, dict) else LarkWebhookEvent()
+        )
         event_type = event.event_type
 
         # 事件分发
         if event_type == "im.message.receive_v1":
             await self._handle_message_receive(event, body)
         elif event_type == "card.action.trigger":
-            logger.info("卡片回调原始事件体（解密后）: %s", json.dumps(body, ensure_ascii=False)[:2000])
+            logger.info(
+                "卡片回调原始事件体（解密后）: %s",
+                json.dumps(body, ensure_ascii=False)[:2000],
+            )
             await self._handle_card_action(event, body)
         elif event_type in (
             "im.message.message_read_v1",
@@ -1561,7 +1768,9 @@ class LarkMessager(_PluginBase):
     #  _handle_message_receive — 解析消息内容 → 构建 Feishu payload → 转发
     #  对标 Feishu._on_message + _parse_message_content
     # ================================================================== #
-    async def _handle_message_receive(self, event: LarkWebhookEvent, raw_body: dict = None):
+    async def _handle_message_receive(
+        self, event: LarkWebhookEvent, raw_body: dict = None
+    ):
         """处理用户发消息给机器人的事件，解析图片/音频/文件/富文本并转发。"""
         evt = event.event or {}
         message = evt.get("message", {}) or {}
@@ -1578,7 +1787,9 @@ class LarkMessager(_PluginBase):
         message_id = message.get("message_id", "")
         chat_id = message.get("chat_id", "")
         chat_type = message.get("chat_type", "")
-        message_type = message.get("msg_type", "")
+        # 注意：接收事件(im.message.receive_v1)的字段是 message_type，
+        # 而 msg_type 是「发送消息 API」的字段名，二者不可混用。
+        message_type = message.get("message_type") or message.get("msg_type") or ""
 
         # 解析消息内容
         content_raw = message.get("content", {})
@@ -1598,29 +1809,56 @@ class LarkMessager(_PluginBase):
         if message_type == "text":
             text = content.get("text", "").strip() if isinstance(content, dict) else ""
         elif message_type == "image":
-            image_key = str(content.get("image_key") or "").strip() if isinstance(content, dict) else ""
+            image_key = (
+                str(content.get("image_key") or "").strip()
+                if isinstance(content, dict)
+                else ""
+            )
             if image_key:
                 if message_id:
                     images = [{"ref": f"feishu://image/{message_id}/{image_key}"}]
                 else:
                     images = [{"ref": f"feishu://image/{image_key}"}]
         elif message_type in ("audio", "media", "file"):
-            file_key = str(content.get("file_key") or "").strip() if isinstance(content, dict) else ""
-            file_name = str(content.get("file_name") or "").strip() if isinstance(content, dict) else ""
+            file_key = (
+                str(content.get("file_key") or "").strip()
+                if isinstance(content, dict)
+                else ""
+            )
+            file_name = (
+                str(content.get("file_name") or "").strip()
+                if isinstance(content, dict)
+                else ""
+            )
             if file_key:
                 if message_type == "audio":
-                    resource_path = f"{message_id}/{file_key}" if message_id else file_key
-                    audio_refs = [f"feishu://file/{resource_path}/{file_name or 'audio.opus'}"]
+                    resource_path = (
+                        f"{message_id}/{file_key}" if message_id else file_key
+                    )
+                    audio_refs = [
+                        f"feishu://file/{resource_path}/{file_name or 'audio.opus'}"
+                    ]
                 else:
-                    resource_path = f"{message_id}/{file_key}" if message_id else file_key
-                    files = [{"ref": f"feishu://file/{resource_path}/{file_name or 'attachment'}", "name": file_name or None}]
+                    resource_path = (
+                        f"{message_id}/{file_key}" if message_id else file_key
+                    )
+                    files = [
+                        {
+                            "ref": f"feishu://file/{resource_path}/{file_name or 'attachment'}",
+                            "name": file_name or None,
+                        }
+                    ]
         elif message_type == "post":
             text, images = self._parse_post_content(content, message_id)
 
         # 记录用户/会话映射
         if self._client:
-            self._client.remember_user_id_type(open_id=sender_open_id, user_id=sender_user_id)
-            self._client.remember_target(userid=sender_open_id or sender_user_id, chat_id=chat_id)
+            self._client.remember_user_id_type(
+                open_id=sender_open_id, user_id=sender_user_id
+            )
+            self._client.remember_target(
+                userid=sender_open_id or sender_user_id, chat_id=chat_id
+            )
 
         # 构建与内置飞书 _on_message 一致的 payload 格式
         payload = {
@@ -1641,8 +1879,12 @@ class LarkMessager(_PluginBase):
             },
         }
         self._forward_to_message_chain(payload)
-        logger.info("已转发 Lark 消息到 MessageChain：sender=%s, type=%s, text=%s",
-                     sender_open_id, message_type, text[:50])
+        logger.info(
+            "已转发 Lark 消息到 MessageChain：sender=%s, type=%s, text=%s",
+            sender_open_id,
+            message_type,
+            text[:50],
+        )
 
     # ================================================================== #
     #  _parse_post_content — 解析富文本消息（对标 Feishu._parse_post_message_content）
@@ -1691,27 +1933,37 @@ class LarkMessager(_PluginBase):
                     image_key = str(element.get("image_key") or "").strip()
                     if tag == "img" and image_key:
                         if message_id:
-                            images.append({"ref": f"feishu://image/{message_id}/{image_key}"})
+                            images.append(
+                                {"ref": f"feishu://image/{message_id}/{image_key}"}
+                            )
                         else:
                             images.append({"ref": f"feishu://image/{image_key}"})
                     # 解析元素文本
                     if tag in ("text", "plain_text"):
-                        row_parts.append(str(element.get("text") or element.get("content") or ""))
+                        row_parts.append(
+                            str(element.get("text") or element.get("content") or "")
+                        )
                     elif tag == "a":
                         link_text = str(element.get("text") or "").strip()
-                        href = str(element.get("href") or element.get("url") or "").strip()
+                        href = str(
+                            element.get("href") or element.get("url") or ""
+                        ).strip()
                         if link_text and href and link_text != href:
                             row_parts.append(f"{link_text} {href}")
                         else:
                             row_parts.append(link_text or href)
                     elif tag == "at":
-                        user_name = str(element.get("user_name") or element.get("name") or "").strip()
+                        user_name = str(
+                            element.get("user_name") or element.get("name") or ""
+                        ).strip()
                         user_id = str(element.get("user_id") or "").strip()
                         target = user_name or user_id
                         if target:
                             row_parts.append(f" @{target}")
                     elif tag in ("code_block", "pre"):
-                        code = str(element.get("text") or element.get("content") or "").strip()
+                        code = str(
+                            element.get("text") or element.get("content") or ""
+                        ).strip()
                         language = str(element.get("language") or "").strip()
                         if code:
                             if language:
@@ -1719,7 +1971,9 @@ class LarkMessager(_PluginBase):
                             else:
                                 row_parts.append(f"```\n{code}\n```")
                     else:
-                        row_parts.append(str(element.get("text") or element.get("content") or ""))
+                        row_parts.append(
+                            str(element.get("text") or element.get("content") or "")
+                        )
                 row_text = "".join(row_parts).strip()
                 if row_text:
                     lines.append(row_text)
@@ -1735,8 +1989,12 @@ class LarkMessager(_PluginBase):
         """处理卡片按钮回调，构建 Feishu 兼容 payload 并转发。"""
         raw_body = raw_body or {}
 
-        action = (event.action if event.action else None) or (event.event or {}).get("action", {})
-        operator = (event.operator if event.operator else None) or (event.event or {}).get("operator", {})
+        action = (event.action if event.action else None) or (event.event or {}).get(
+            "action", {}
+        )
+        operator = (event.operator if event.operator else None) or (
+            event.event or {}
+        ).get("operator", {})
 
         # message_id 提取
         message_id = ""
@@ -1759,7 +2017,9 @@ class LarkMessager(_PluginBase):
         # chat_id 提取
         chat_id = ""
         if isinstance(raw_body.get("event"), dict):
-            chat_id = (raw_body["event"].get("context") or {}).get("open_chat_id", "") or raw_body["event"].get("chat_id", "")
+            chat_id = (raw_body["event"].get("context") or {}).get(
+                "open_chat_id", ""
+            ) or raw_body["event"].get("chat_id", "")
 
         # 使用 extract_card_callback_data 提取 callback_data（对标 Feishu._extract_card_callback_data）
         action_value = ""
@@ -1767,7 +2027,9 @@ class LarkMessager(_PluginBase):
         if isinstance(action, dict):
             action_tag = action.get("tag", "")
             value_raw = action.get("value", "")
-            action_value = LarkClient.extract_card_callback_data(value_raw, action.get("name"))
+            action_value = LarkClient.extract_card_callback_data(
+                value_raw, action.get("name")
+            )
 
         callback_data = action_value or action_tag
 
@@ -1782,12 +2044,20 @@ class LarkMessager(_PluginBase):
             if not operator_open_id:
                 operator_open_id = operator.get("open_id", "")
 
-        logger.info("收到卡片按钮回调：callback_data=%s, operator=%s", callback_data, operator_open_id)
+        logger.info(
+            "收到卡片按钮回调：callback_data=%s, operator=%s",
+            callback_data,
+            operator_open_id,
+        )
 
         # 记录用户/会话映射
         if self._client:
-            self._client.remember_user_id_type(open_id=operator_open_id, user_id=operator_user_id)
-            self._client.remember_target(userid=operator_open_id or operator_user_id, chat_id=chat_id)
+            self._client.remember_user_id_type(
+                open_id=operator_open_id, user_id=operator_user_id
+            )
+            self._client.remember_target(
+                userid=operator_open_id or operator_user_id, chat_id=chat_id
+            )
 
         # 测试按钮：直接回复（插件内部逻辑）
         if callback_data == "test_ok" and self._client:
@@ -1857,10 +2127,15 @@ class LarkMessager(_PluginBase):
                             if open_id:
                                 _add(open_id, "open_id")
                             else:
-                                warn_parts.append(f"用户解析失败：找不到用户（{uid}），请检查邮箱/手机号是否正确")
+                                warn_parts.append(
+                                    f"用户解析失败：找不到用户（{uid}），请检查邮箱/手机号是否正确"
+                                )
                     except Exception as e:
                         error_msg = str(e)
-                        if "99991672" in error_msg or "contact:user.id:readonly" in error_msg:
+                        if (
+                            "99991672" in error_msg
+                            or "contact:user.id:readonly" in error_msg
+                        ):
                             warn_parts.append(
                                 "用户解析失败：缺少权限 contact:user.id:readonly。"
                                 "请在 Lark 开放平台 > 权限管理 开通此权限，并重新发布应用版本"
@@ -1881,7 +2156,8 @@ class LarkMessager(_PluginBase):
     def _test_endpoint(self, request: Request) -> JSONResponse:
         def _store(ok: bool, msg: str) -> dict:
             result = {
-                "ok": ok, "msg": msg,
+                "ok": ok,
+                "msg": msg,
                 "time": time.strftime("%Y-%m-%d %H:%M:%S"),
                 "displayed": False,
             }
@@ -1889,15 +2165,20 @@ class LarkMessager(_PluginBase):
             return result
 
         if not self._client:
-            return JSONResponse(_store(False, "插件未启用，或 App ID / App Secret 未配置"))
+            return JSONResponse(
+                _store(False, "插件未启用，或 App ID / App Secret 未配置")
+            )
 
         targets, warn_msg = self._resolve_targets()
         if not targets:
-            error_msg = warn_msg if warn_msg else "未配置默认通知用户或群聊，请至少填一项"
+            error_msg = (
+                warn_msg if warn_msg else "未配置默认通知用户或群聊，请至少填一项"
+            )
             return JSONResponse(_store(False, error_msg))
 
         try:
             from datetime import datetime
+
             now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
             # 构建精美测试卡片（schema 2.0，带 header 模板色 + 分隔线 + 字段布局）
             card = {
@@ -1996,10 +2277,18 @@ class LarkMessager(_PluginBase):
                                     "elements": [
                                         {
                                             "tag": "button",
-                                            "text": {"tag": "plain_text", "content": "点击确认"},
+                                            "text": {
+                                                "tag": "plain_text",
+                                                "content": "点击确认",
+                                            },
                                             "type": "primary",
                                             "behaviors": [
-                                                {"type": "callback", "value": {"callback_data": "test_ok"}}
+                                                {
+                                                    "type": "callback",
+                                                    "value": {
+                                                        "callback_data": "test_ok"
+                                                    },
+                                                }
                                             ],
                                         },
                                     ],
@@ -2011,7 +2300,10 @@ class LarkMessager(_PluginBase):
                                     "elements": [
                                         {
                                             "tag": "button",
-                                            "text": {"tag": "plain_text", "content": "查看文档"},
+                                            "text": {
+                                                "tag": "plain_text",
+                                                "content": "查看文档",
+                                            },
                                             "type": "default",
                                             "behaviors": [
                                                 {
@@ -2031,7 +2323,11 @@ class LarkMessager(_PluginBase):
             for rid, rid_type in targets:
                 mid = self._client.send_card(rid, card, rid_type)
                 sent_ids.append(mid)
-            logger.info("LarkMessager 测试消息已发送 %d 条，message_ids=%s", len(sent_ids), sent_ids)
+            logger.info(
+                "LarkMessager 测试消息已发送 %d 条，message_ids=%s",
+                len(sent_ids),
+                sent_ids,
+            )
             ok_msg = f"测试消息已发送 {len(sent_ids)} 条，请到 Lark 查收（message_ids={sent_ids}）"
             if warn_msg:
                 ok_msg += f"；注意：{warn_msg}"
@@ -2046,46 +2342,79 @@ class LarkMessager(_PluginBase):
     def _status_endpoint(self, request: Request) -> JSONResponse:
         self.del_data("last_test_result")
         self.del_data("last_chats")
-        return JSONResponse({
-            "enabled": self._enabled,
-            "app_id": self._app_id[:8] + "..." if self._app_id else "",
-            "has_client": self._client is not None,
-            "has_crypto": self._crypto is not None,
-            "admin_count": len(self._admin_users),
-            "chat_id": self._chat_id[:8] + "..." if self._chat_id else "",
-        })
+        return JSONResponse(
+            {
+                "enabled": self._enabled,
+                "app_id": self._app_id[:8] + "..." if self._app_id else "",
+                "has_client": self._client is not None,
+                "has_crypto": self._crypto is not None,
+                "admin_count": len(self._admin_users),
+                "chat_id": self._chat_id[:8] + "..." if self._chat_id else "",
+            }
+        )
 
     # ------------------------------------------------------------------ #
     #  /fetch_chats 端点
     # ------------------------------------------------------------------ #
     def _fetch_chats_endpoint(self, request: Request) -> JSONResponse:
         if not self._app_id or not self._app_secret:
-            result = {"ok": False, "msg": "请先在插件配置中填写 App ID 和 App Secret 并保存。", "chats": []}
+            result = {
+                "ok": False,
+                "msg": "请先在插件配置中填写 App ID 和 App Secret 并保存。",
+                "chats": [],
+            }
         else:
             try:
                 client = LarkClient(self._app_id, self._app_secret)
                 url = f"{API_BASE}/im/v1/chats"
                 params = {"user_id_type": "open_id", "page_size": 100}
-                resp = requests.get(url, headers=client._headers(), params=params, timeout=10)
+                resp = requests.get(
+                    url, headers=client._headers(), params=params, timeout=10
+                )
                 data = resp.json()
                 if data.get("code") != 0:
-                    result = {"ok": False, "msg": f"Lark API 错误：{data.get('msg')}（code={data.get('code')}）", "chats": []}
+                    result = {
+                        "ok": False,
+                        "msg": f"Lark API 错误：{data.get('msg')}（code={data.get('code')}）",
+                        "chats": [],
+                    }
                 else:
                     items = (data.get("data") or {}).get("items") or []
                     chats = [
-                        {"chat_id": it.get("chat_id", ""), "name": it.get("name", "(未命名)"), "description": it.get("description", "")}
+                        {
+                            "chat_id": it.get("chat_id", ""),
+                            "name": it.get("name", "(未命名)"),
+                            "description": it.get("description", ""),
+                        }
                         for it in items
                     ]
                     if not chats:
-                        result = {"ok": False, "msg": "Lark 返回空列表。请确认：本应用已被添加为群聊机器人。", "chats": []}
+                        result = {
+                            "ok": False,
+                            "msg": "Lark 返回空列表。请确认：本应用已被添加为群聊机器人。",
+                            "chats": [],
+                        }
                     else:
-                        lines = [f"- {c['name']} ({c['chat_id']})" + (f"\n  {c['description']}" if c.get("description") else "") for c in chats]
-                        result = {"ok": True, "msg": f"共 {len(chats)} 个群聊：\n" + "\n".join(lines), "chats": chats}
+                        lines = [
+                            f"- {c['name']} ({c['chat_id']})"
+                            + (
+                                f"\n  {c['description']}"
+                                if c.get("description")
+                                else ""
+                            )
+                            for c in chats
+                        ]
+                        result = {
+                            "ok": True,
+                            "msg": f"共 {len(chats)} 个群聊：\n" + "\n".join(lines),
+                            "chats": chats,
+                        }
             except Exception as e:
                 logger.error("LarkMessager fetch_chats 失败：%s", e)
                 result = {"ok": False, "msg": f"请求失败：{e}", "chats": []}
 
         import datetime
+
         result["time"] = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         result["displayed"] = False
         self.save_data("last_chats", result)

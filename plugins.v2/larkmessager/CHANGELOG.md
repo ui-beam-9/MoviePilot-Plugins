@@ -1,5 +1,18 @@
 # LarkMessager 更新日志
 
+## v0.9.0 - 2026-07-09
+
+### 修复
+
+- **流式卡片更新/关闭 404 修复**：CardKit 内容更新端点实际要求 `PUT`（非 `POST`），关闭端点要求 `PATCH`（非 `POST`）；原代码用 `POST` 导致 Lark 网关判为未匹配路由、返回纯文本 `404 page not found`，流式卡片的逐字更新与关闭静默失败。现对齐官方 `lark_oapi` SDK（`HttpMethod.PUT` / `HttpMethod.PATCH`）。
+- **智能助手消息识别修复**：接收事件 `im.message.receive_v1` 的消息类型字段是 `message_type`，原代码误用发送 API 的 `msg_type` 字段，导致 `type` / `text` 恒为空、消息链报「未识别到有效消息」。改为 `message.get("message_type") or message.get("msg_type")`。
+- **CardKit 不可用降级**：`_send_streaming_card_message` 在 CardKit 流式创建失败（最常见是 Lark 应用缺少 `cardkit:card:write` 权限作用域）时，降级为普通 interactive 卡片发送（走标准 `/im/v1/messages`，无需 cardkit 权限），保证消息仍可达。
+- **CardKit 响应防御性解析**：Lark 国际版 `card_element.content` / `card.settings` 变更端点在成功时可能返回 `null` 后尾随 NUL/控制字符，原 `resp.json()` 抛 `JSONDecodeError: Extra data` 被误判为失败。新增 `_safe_parse_cardkit` / `_cardkit_ok`：剥离控制字符后解析，无 `code` 信息时以 HTTP 2xx 兜底、有 `code` 时以其为准。
+
+### 说明
+
+- 流式卡片需在 Lark 开放平台为应用添加 `cardkit:card:write` 权限作用域，并**重新发布应用版本**后生效。
+
 ## v0.8.0 - 2026-07-09
 
 ### 修复

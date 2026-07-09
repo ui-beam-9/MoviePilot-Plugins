@@ -52,6 +52,7 @@ larkmessager/
 | `im:resource` | 获取与上传图片或文件资源 | 上传图片到 Lark（通知卡片图片、用户头像等） |
 | `contact:user.base:readonly` | 获取用户基本信息 | 显示用户名称等资料 |
 | `contact:user.id:readonly` | 通过手机号或邮箱获取用户 ID | 支持在插件配置中使用邮箱/手机号指定收件人（替代 Open ID） |
+| `cardkit:card:write` | 读取与更新消息卡片内容（CardKit） | 启用 AI 智能助手流式卡片（逐字/流式输出回复、实时更新与关闭卡片） |
 
 **权限开通步骤：**
 
@@ -181,6 +182,17 @@ http(s)://<你的MoviePilot地址>/api/v1/plugin/LarkMessager/webhook
 4. 回到 MoviePilot 重新点「发送测试消息」
 
 > 不使用邮箱/手机号收件人（只用群聊 Chat ID 或 Open ID）则无需此权限。
+
+### Q: AI 智能助手流式回复收不到 / 提示缺少 cardkit:card:write 权限
+
+AI 智能助手的「逐字流式输出」基于 Lark CardKit 流式卡片接口，需要应用具备「读写消息卡片」权限：
+
+1. Lark 开放平台 → 你的应用 → **「权限管理」**
+2. 搜索并开通 `cardkit:card:write`（读取与更新消息卡片内容）
+3. 进入 **「版本管理与发布」**，创建并发布新版本（**权限变更必须重新发布才生效**）
+4. 重启 MoviePilot，让最新代码与权限生效
+
+> **未开通时的行为**：插件会自动降级为普通 interactive 卡片发送，AI 回复仍可正常送达（只是不再有逐字流式效果）。若开通并发布后仍失败，请检查应用已发布且 MoviePilot 已完全重启。
 
 ---
 

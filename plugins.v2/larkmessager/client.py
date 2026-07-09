@@ -943,31 +943,99 @@ class LarkClient:
         default_open_id: Optional[str] = None,
         default_chat_id: Optional[str] = None,
     ) -> Optional[dict]:
-        """创建流式卡片并发送消息，返回带 metadata 的结果。"""
+        """创建流式卡片并发送消息，返回带 metadata 的结果。
+
+        若 CardKit 流式不可用（最常见是 Lark 应用缺少 cardkit:card:write 权限作用域，
+        或 CardKit API 调用失败），则降级为普通 interactive 卡片发送——
+        普通卡片走标准 IM 发消息 API（/im/v1/messages），无需 cardkit 权限，
+        保证消息仍能送达（只是不具备逐字流式动画）。
+        """
         card_id = self._create_streaming_card(title=title, text=text)
-        if not card_id:
-            return None
-        card_content = {"type": "card", "data": {"card_id": card_id}}
-        if original_message_id:
-            result = self._reply_message(
-                message_id=original_message_id, msg_type="interactive", content=card_content,
-            )
-        else:
-            receive_id, resolved_type = self.resolve_target(
-                userid=userid, chat_id=chat_id, receive_id_type=receive_id_type,
-                default_open_id=default_open_id, default_chat_id=default_chat_id,
-            )
-            result = self._send_message(receive_id, resolved_type, "interactive", card_content)
-        if not result:
-            return None
-        result["metadata"] = {
-            "feishu_streaming": {
-                "card_id": card_id,
-                "element_id": self.STREAM_CARD_BODY_ELEMENT_ID,
-                "sequence": 0,
+        if card_id:
+            card_content = {"type": "card", "data": {"card_id": card_id}}
+            if original_message_id:
+                result = self._reply_message(
+                    message_id=original_message_id, msg_type="interactive", content=card_content,
+                )
+            else:
+                receive_id, resolved_type = self.resolve_target(
+                    userid=userid, chat_id=chat_id, receive_id_type=receive_id_type,
+                    default_open_id=default_open_id, default_chat_id=default_chat_id,
+                )
+                result = self._send_message(receive_id, resolved_type, "interactive", card_content)
+            if not result:
+                return None
+            result["metadata"] = {
+                "feishu_streaming": {
+                    "card_id": card_id,
+                    "element_id": self.STREAM_CARD_BODY_ELEMENT_ID,
+                    "sequence": 0,
+                }
             }
-        }
-        return result
+            return result
+
+        # —— 降级：CardKit 流式不可用，改用普通 interactive 卡片（无需 cardkit 权限）——
+        logger.warning(
+            "Lark CardKit 流式卡片不可用，降级为普通卡片发送"
+            "（若需逐字流式效果，请在 Lark 开放平台为应用添加 cardkit:card:write 权限作用域）"
+        )
+        fallback_payload = self.build_card_v2(
+            title=title, text=text, link=None, buttons=None, image_key=None,
+            header_template=self._header_template_for_mtype("Agent"),
+        )
+        if original_message_id:
+            return self._reply_message(
+                message_id=original_message_id, msg_type="interactive", content=fallback_payload,
+            )
+        receive_id, resolved_type = self.resolve_target(
+            userid=userid, chat_id=chat_id, receive_id_type=receive_id_type,
+            default_open_id=default_open_id, default_chat_id=default_chat_id,
+        )
+        return self._send_message(receive_id, resolved_type, "interactive", fallback_payload)
+
+    @staticmethod
+    def _safe_parse_cardkit(resp) -> dict:
+        """防御性解析 CardKit 变更类端点（content/settings）的返回。
+
+        Lark 国际版（open.larksuite.com）的 card_element.content / card.settings
+        这类「变更」端点在成功时可能返回 ``null`` 后尾随一个 NUL/控制字符
+        （如 ``null\\x00``），导致 ``resp.json()`` 抛
+        ``JSONDecodeError: Extra data`` 而被误判为失败。
+
+        处理策略：剥离 NUL/控制字符与首尾空白后 ``json.loads``；
+        解析失败 / 空响应 / 非 dict（如 ``null``）一律返回空 dict，
+        由调用方结合 HTTP 状态码兜底判定（变更内容已随请求体发往 Lark 生效）。
+        若解析出带 ``code`` 字段的 dict，则原样返回交由调用方以 ``code`` 为准。
+        """
+        text = getattr(resp, "text", "") or ""
+        raw = text
+        cleaned = "".join(ch for ch in text if ch >= " " or ch in "\t\n\r")
+        if not cleaned.strip():
+            return {}
+        try:
+            parsed = json.loads(cleaned)
+        except Exception:
+            logger.warning(
+                "Lark CardKit 响应解析失败(raw=%r, status=%s)，转由状态码判定",
+                raw[:200], resp.status_code,
+            )
+            return {}
+        if isinstance(parsed, dict):
+            return parsed
+        # 解析为 null/列表/字符串等非 dict：无 code 信息，交由状态码兜底
+        return {}
+
+    @staticmethod
+    def _cardkit_ok(resp, data: dict) -> bool:
+        """判定 CardKit 变更请求是否成功。
+
+        - 响应体含明确 ``code`` 字段 → 以 ``code == 0`` 为准
+          （Lark 即便业务出错也常返回 HTTP 200，故不可只信状态码）；
+        - 响应体无 ``code`` 信息（null/空/无法解析）→ 以 HTTP 2xx 兜底。
+        """
+        if isinstance(data, dict) and "code" in data:
+            return data.get("code") == 0
+        return 200 <= resp.status_code < 300
 
     def _update_streaming_card_content(
         self, card_id: str, element_id: str, content: str, sequence: int
@@ -980,9 +1048,11 @@ class LarkClient:
             "sequence": sequence,
         }
         try:
-            resp = requests.post(url, headers=self._headers(), json=payload, timeout=15)
-            data = resp.json()
-            if data.get("code") == 0:
+            # 注意：CardKit 内容更新端点仅接受 PUT（官方 lark_oapi SDK 固定为 HttpMethod.PUT），
+            # 用 POST 会被 Lark 网关判为未匹配路由而返回纯文本 404 page not found。
+            resp = requests.put(url, headers=self._headers(), json=payload, timeout=15)
+            data = self._safe_parse_cardkit(resp)
+            if self._cardkit_ok(resp, data):
                 logger.debug("Lark 流式卡片更新成功：card_id=%s, seq=%s", card_id, sequence)
                 return True
             logger.warning("Lark 流式卡片内容更新失败：card_id=%s, seq=%s, code=%s, msg=%s",
@@ -1002,9 +1072,11 @@ class LarkClient:
             "sequence": sequence,
         }
         try:
-            resp = requests.post(url, headers=self._headers(), json=payload, timeout=15)
-            data = resp.json()
-            if data.get("code") == 0:
+            # 注意：CardKit settings（关闭流式卡片）端点仅接受 PATCH（官方 lark_oapi SDK 固定为
+            # HttpMethod.PATCH），用 POST 会被 Lark 网关判为未匹配路由而返回纯文本 404 page not found。
+            resp = requests.patch(url, headers=self._headers(), json=payload, timeout=15)
+            data = self._safe_parse_cardkit(resp)
+            if self._cardkit_ok(resp, data):
                 return True
             logger.warning("Lark 关闭流式卡片失败：card_id=%s, seq=%s, code=%s, msg=%s",
                            card_id, sequence, data.get("code"), data.get("msg"))

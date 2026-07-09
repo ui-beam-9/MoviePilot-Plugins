@@ -25,7 +25,7 @@ MoviePilot官方插件市场：https://github.com/jxxghp/MoviePilot-Plugins
 
 基于 [Lark 开放平台](https://open.larksuite.com/)（国际版飞书）自建应用的消息通知与交互插件，为 MoviePilot 提供完整的 Lark 消息通道。
 
-- **版本**: 0.8.0
+- **版本**: 0.9.0
 - **作者**: ui-beam-9
 - **标签**: 通知, Lark, 交互
 - **图标**: FeiShu_A.png
