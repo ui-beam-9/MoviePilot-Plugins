@@ -3,7 +3,7 @@
     "name": "OIDC 认证",
     "description": "通过 OpenID Connect Provider 为 MoviePilot 提供插件化登录与账号绑定。",
     "labels": "认证,OIDC,SSO",
-    "version": "0.3.4",
+    "version": "0.3.5",
     "icon": "Oidcauth_A.png",
     "author": "ui-beam-9,jxxghp",
     "level": 1,
@@ -16,7 +16,8 @@
       "v0.3.1": "修复回调事件类型不匹配导致前端错误提示不准确；移除解绑方法多余检查，允许 OIDC 关闭状态下正常解绑。",
       "v0.3.2": "插件配置属性增加中文注释与官方图标引用，插件加载顺序调整；ConfigPage 回调地址复制增强，兼容非 HTTPS 环境。",
       "v0.3.3": "从编译产物反推恢复 v0.3.0 网页源码，修复源码丢失导致的 UI 回退问题，恢复完整重构页面与网页源码上传。",
-      "v0.3.4": "回调地址样式优化：ConfigPage 回调地址展示区域视觉优化，提升可读性与复制体验。"
+      "v0.3.4": "回调地址样式优化：ConfigPage 回调地址展示区域视觉优化，提升可读性与复制体验。",
+      "v0.3.5": "新增「使用代理」开关：OIDC 请求默认直连 Provider，避免 MoviePilot 全局代理拦截内网/局域网 IdP 导致登录失败（issue #1）；仅当 Provider 位于外网时手动开启才走代理。"
     }
   },
   "LarkMessager": {

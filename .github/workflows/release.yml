@@ -88,7 +88,12 @@ jobs:
 
               echo "Packing $plugin_id from $plugin_dir -> $asset"
               rm -f "$asset"
-              (cd "$(dirname "$plugin_dir")" && zip -r "$GITHUB_WORKSPACE/$asset" "$(basename "$plugin_dir")" -x "*/__pycache__/*" -x "*.pyc") >/dev/null
+              if [ "$plugin_id_lc" = "oidcauth" ]; then
+                # OidcAuth：只打包运行时文件，src/、node_modules/、package.json 等均为开发文件不进压缩包
+                (cd "$(dirname "$plugin_dir")" && zip -r "$GITHUB_WORKSPACE/$asset" "$(basename "$plugin_dir")/assets" "$(basename "$plugin_dir")/index.html" "$(basename "$plugin_dir")/__init__.py" -x "*/__pycache__/*" -x "*.pyc") >/dev/null
+              else
+                (cd "$(dirname "$plugin_dir")" && zip -r "$GITHUB_WORKSPACE/$asset" "$(basename "$plugin_dir")" -x "*/__pycache__/*" -x "*.pyc") >/dev/null
+              fi
 
               # If same tag exists, delete release and both remote/local tag first
               if gh release view "$tag" >/dev/null 2>&1; then

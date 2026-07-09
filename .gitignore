@@ -174,3 +174,6 @@ plugins.v2/larkmessager/DESIGN.md
 plugins.v2/larkmessager/tasks.md
 plugins.v2/larkmessager/COMPARISON.md
 
+# OidcAuth plugin - design documents
+plugins.v2/oidcauth/tasks.md
+

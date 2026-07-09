@@ -54,6 +54,7 @@ const config = ref({
   username_claim: 'preferred_username',
   email_claim: 'email',
   allow_auto_bind_by_username: false,
+  use_proxy: false,
 });
 
 
@@ -157,7 +158,7 @@ return (_ctx, _cache) => {
         _createVNode(_component_VCardItem, null, {
           default: _withCtx(() => [
             _createVNode(_component_VCardTitle, null, {
-              default: _withCtx(() => [...(_cache[10] || (_cache[10] = [
+              default: _withCtx(() => [...(_cache[11] || (_cache[11] = [
                 _createTextVNode("OIDC Provider 配置", -1)
               ]))]),
               _: 1
@@ -301,6 +302,17 @@ return (_ctx, _cache) => {
                           }, null, 8, ["modelValue"])
                         ]),
                         _: 1
+                      }),
+                      _createVNode(_component_VCol, { cols: "12" }, {
+                        default: _withCtx(() => [
+                          _createVNode(_component_VSwitch, {
+                            modelValue: config.value.use_proxy,
+                            "onUpdate:modelValue": _cache[10] || (_cache[10] = $event => ((config.value.use_proxy) = $event)),
+                            label: "使用代理（默认关闭=直连，仅外网 OIDC Provider 需要开启）",
+                            color: "primary"
+                          }, null, 8, ["modelValue"])
+                        ]),
+                        _: 1
                       })
                     ]),
                     _: 1
@@ -311,14 +323,14 @@ return (_ctx, _cache) => {
                         size: "20",
                         color: "primary"
                       }, {
-                        default: _withCtx(() => [...(_cache[11] || (_cache[11] = [
+                        default: _withCtx(() => [...(_cache[12] || (_cache[12] = [
                           _createTextVNode("mdi-information-outline", -1)
                         ]))]),
                         _: 1
                       }),
-                      _cache[12] || (_cache[12] = _createElementVNode("span", { class: "text-subtitle-2 font-weight-medium" }, "使用指南", -1))
+                      _cache[13] || (_cache[13] = _createElementVNode("span", { class: "text-subtitle-2 font-weight-medium" }, "使用指南", -1))
                     ]),
-                    _cache[15] || (_cache[15] = _createElementVNode("div", { class: "d-flex gap-3 mb-2" }, [
+                    _cache[16] || (_cache[16] = _createElementVNode("div", { class: "d-flex gap-3 mb-2" }, [
                       _createElementVNode("div", {
                         class: "text-medium-emphasis",
                         style: {"min-width":"16px"}
@@ -326,18 +338,18 @@ return (_ctx, _cache) => {
                       _createElementVNode("div", { class: "text-body-2" }, "在您的 OIDC 提供商（如 Keycloak、Authentik、Okta 等）中创建一个客户端，协议类型选择 \"OAuth2/OpenID Provider\"，授权流程使用 \"Authorize Application\"。")
                     ], -1)),
                     _createElementVNode("div", _hoisted_4, [
-                      _cache[14] || (_cache[14] = _createElementVNode("div", {
+                      _cache[15] || (_cache[15] = _createElementVNode("div", {
                         class: "text-medium-emphasis",
                         style: {"min-width":"16px"}
                       }, "2.", -1)),
                       _createElementVNode("div", _hoisted_5, [
-                        _cache[13] || (_cache[13] = _createTextVNode(" 将回调地址设置为： ", -1)),
+                        _cache[14] || (_cache[14] = _createTextVNode(" 将回调地址设置为： ", -1)),
                         (displayRedirectUri.value)
                           ? (_openBlock(), _createElementBlock("span", _hoisted_6, _toDisplayString(displayRedirectUri.value), 1))
                           : (_openBlock(), _createElementBlock("span", _hoisted_7, "加载中..."))
                       ])
                     ]),
-                    _cache[16] || (_cache[16] = _createElementVNode("div", { class: "d-flex gap-3 mb-2" }, [
+                    _cache[17] || (_cache[17] = _createElementVNode("div", { class: "d-flex gap-3 mb-2" }, [
                       _createElementVNode("div", {
                         class: "text-medium-emphasis",
                         style: {"min-width":"16px"}
@@ -351,14 +363,14 @@ return (_ctx, _cache) => {
                         ])
                       ])
                     ], -1)),
-                    _cache[17] || (_cache[17] = _createElementVNode("div", { class: "d-flex gap-3 mb-2" }, [
+                    _cache[18] || (_cache[18] = _createElementVNode("div", { class: "d-flex gap-3 mb-2" }, [
                       _createElementVNode("div", {
                         class: "text-medium-emphasis",
                         style: {"min-width":"16px"}
                       }, "4."),
                       _createElementVNode("div", { class: "text-body-2" }, "保存后登录页面将显示 OIDC 登录按钮。")
                     ], -1)),
-                    _cache[18] || (_cache[18] = _createElementVNode("div", { class: "d-flex gap-3" }, [
+                    _cache[19] || (_cache[19] = _createElementVNode("div", { class: "d-flex gap-3" }, [
                       _createElementVNode("div", {
                         class: "text-medium-emphasis",
                         style: {"min-width":"16px"}
@@ -375,7 +387,7 @@ return (_ctx, _cache) => {
                 loading: saving.value,
                 onClick: saveConfig
               }, {
-                default: _withCtx(() => [...(_cache[19] || (_cache[19] = [
+                default: _withCtx(() => [...(_cache[20] || (_cache[20] = [
                   _createTextVNode("保存", -1)
                 ]))]),
                 _: 1
@@ -389,7 +401,7 @@ return (_ctx, _cache) => {
                     loading: testing.value,
                     onClick: testConnection
                   }, {
-                    default: _withCtx(() => [...(_cache[20] || (_cache[20] = [
+                    default: _withCtx(() => [...(_cache[21] || (_cache[21] = [
                       _createTextVNode("测试连接", -1)
                     ]))]),
                     _: 1
@@ -433,6 +445,6 @@ return (_ctx, _cache) => {
 }
 
 };
-const ConfigPage = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-dcbb4742"]]);
+const ConfigPage = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-a2e506d0"]]);
 
 export { ConfigPage as default };

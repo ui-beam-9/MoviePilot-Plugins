@@ -33,7 +33,7 @@ class OidcAuth(_PluginBase):
     # 插件图标
     plugin_icon = "https://raw.githubusercontent.com/jxxghp/MoviePilot-Plugins/main/icons/Oidcauth_A.png"
     # 插件版本，必须和 package.v2.json 中保持一致
-    plugin_version = "0.3.4"
+    plugin_version = "0.3.5"
     # 作者信息
     plugin_author = "ui-beam-9,jxxghp"
     author_url = "https://github.com/ui-beam-9"
@@ -438,6 +438,7 @@ class OidcAuth(_PluginBase):
             "allow_auto_bind_by_username": bool(
                 config.get("allow_auto_bind_by_username")  # 允许按用户名自动绑定
             ),
+            "use_proxy": bool(config.get("use_proxy")),  # 是否使用 MP 全局代理（默认 False=直连，兼容内网 Provider）
         }
 
     def _is_login_ready(self) -> bool:
@@ -460,6 +461,18 @@ class OidcAuth(_PluginBase):
         if not self._is_login_ready():
             raise HTTPException(status_code=400, detail="OIDC 登录未启用或配置不完整")
 
+    def _proxy_kwargs(self) -> Dict[str, Any]:
+        """
+        根据配置返回 httpx 客户端代理参数。
+
+        默认不使用 MoviePilot 全局代理（直连），以兼容内网/局域网
+        OIDC Provider；当 Provider 位于外网、必须走代理才能访问时，
+        在插件配置中开启「使用代理」后才会附加 MP 的 PROXY_HOST。
+        """
+        if self._config.get("use_proxy"):
+            return {"proxy": settings.PROXY_HOST or None}
+        return {}
+
     async def _get_discovery(self, config: Optional[dict] = None) -> dict:
         """
         获取 OIDC Provider 发现文档。
@@ -477,7 +490,7 @@ class OidcAuth(_PluginBase):
             else f"{issuer}/.well-known/openid-configuration"
         )
         async with httpx.AsyncClient(
-            timeout=10.0, proxy=settings.PROXY_HOST or None
+            timeout=10.0, **self._proxy_kwargs()
         ) as client:
             response = await client.get(discovery_url)
             response.raise_for_status()
@@ -517,7 +530,7 @@ class OidcAuth(_PluginBase):
         if not token_endpoint:
             raise ValueError("OIDC 发现文档缺少 token_endpoint")
         async with httpx.AsyncClient(
-            timeout=10.0, proxy=settings.PROXY_HOST or None
+            timeout=10.0, **self._proxy_kwargs()
         ) as client:
             response = await client.post(
                 token_endpoint,
@@ -548,7 +561,7 @@ class OidcAuth(_PluginBase):
         if not userinfo_endpoint:
             raise ValueError("OIDC 发现文档缺少 userinfo_endpoint")
         async with httpx.AsyncClient(
-            timeout=10.0, proxy=settings.PROXY_HOST or None
+            timeout=10.0, **self._proxy_kwargs()
         ) as client:
             response = await client.get(
                 userinfo_endpoint, headers={"Authorization": f"Bearer {access_token}"}

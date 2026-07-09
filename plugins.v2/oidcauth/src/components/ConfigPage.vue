@@ -26,6 +26,7 @@ const config = ref({
   username_claim: 'preferred_username',
   email_claim: 'email',
   allow_auto_bind_by_username: false,
+  use_proxy: false,
 })
 
 
@@ -147,6 +148,9 @@ onUnmounted(() => {
             </VCol>
             <VCol cols="12">
               <VSwitch v-model="config.allow_auto_bind_by_username" label="允许按用户名 Claim 自动绑定已有用户" color="primary" />
+            </VCol>
+            <VCol cols="12">
+              <VSwitch v-model="config.use_proxy" label="使用代理（默认关闭=直连，仅外网 OIDC Provider 需要开启）" color="primary" />
             </VCol>
           </VRow>
 

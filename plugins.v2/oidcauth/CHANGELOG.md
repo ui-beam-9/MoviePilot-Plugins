@@ -1,5 +1,16 @@
 # OidcAuth 更新日志
 
+## v0.3.5
+
+> **来源**：GitHub Issue [#1](https://github.com/ui-beam-9/MoviePilot-Plugins/issues/1) — 用户 hyuan280 反馈 OIDC 认证默认强制走 MP 代理，导致内网/局域网 IdP 被代理拦截、登录失败，希望「不要默认使用 MP 的代理，使用外网 Provider 的按需开启」。
+
+### 优化
+
+- **OIDC 请求默认直连、不再强制走 MP 代理**：新增「使用代理」开关（配置项 `use_proxy`，默认关闭）。关闭时 3 处 OIDC 网络请求（发现文档 / 换取 Token / 拉取用户信息）直接连接 Provider，解决内网/局域网 IdP 被 MP 全局代理拦截导致登录失败的问题；仅当 Provider 位于外网、必须科学上网才能访问时，才在插件配置中开启此开关。
+- **配套前端开关**：`ConfigPage.vue` 新增「使用代理」切换项，默认关闭。
+
+---
+
 ## v0.3.4
 
 ### 优化
