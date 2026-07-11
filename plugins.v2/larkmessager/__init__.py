@@ -16,7 +16,7 @@ from app.plugins import _PluginBase
 from app.log import logger
 from app.schemas import CommingMessage, MessageResponse, Notification
 from app.schemas.event import Event
-from app.schemas.types import EventType, MessageChannel, NotificationType
+from app.schemas.types import EventType, MessageChannel, NotificationType, SystemConfigKey
 from app.utils.http import RequestUtils
 
 from .client import LarkClient, API_BASE
@@ -38,7 +38,7 @@ class LarkMessager(_PluginBase):
     plugin_name = "Lark 应用消息通知"
     plugin_desc = "基于国际版飞书 Lark 开放平台应用的通知与消息交互插件，支持文本、卡片消息发送及消息回调交互。"
     plugin_icon = "https://raw.githubusercontent.com/jxxghp/MoviePilot-Plugins/main/icons/FeiShu_A.png"
-    plugin_version = "0.9.0"
+    plugin_version = "0.9.1"
     plugin_author = "ui-beam-9"
     author_url = "https://github.com/ui-beam-9"
     plugin_config_prefix = "larkmessager_"
@@ -880,12 +880,36 @@ class LarkMessager(_PluginBase):
         self._app_id = (config.get("app_id") or "").strip()
         self._app_secret = (config.get("app_secret") or "").strip()
         self._chat_id = (config.get("chat_id") or "").strip()
-        self._user_id = (config.get("user_id") or "").strip()
+        self._user_id_raw = (config.get("FEISHU_OPEN_ID") or config.get("user_id") or "").strip()
+        self._user_id = self._user_id_raw
         self._verification_token = (config.get("verification_token") or "").strip()
         self._encrypt_key = (config.get("encrypt_key") or "").strip()
-        self._admin_users = [
-            u.strip() for u in (config.get("admin_users") or "").split(",") if u.strip()
+        # 管理员用户：单一输入框，混填 邮箱 / 手机号 / Open ID（ou_xxx），
+        # 多个用 , 分隔。插件按格式自动识别类型并解析成 Open ID，
+        # 再同步给 AI 智能助手。兼容旧字段 admin_emails / admin_mobiles / admin_users。
+        _admin_raw = [
+            u.strip()
+            for u in (
+                config.get("FEISHU_ADMINS")
+                or config.get("admin_users")
+                or ""
+            ).split(",")
+            if u.strip()
         ]
+        # 兼容历史独立字段（旧配置迁移用）
+        for _legacy in (config.get("admin_emails") or "").split(",") + \
+                (config.get("admin_mobiles") or "").split(","):
+            _legacy = _legacy.strip()
+            if _legacy and _legacy not in _admin_raw:
+                _admin_raw.append(_legacy)
+        self._admin_openids_direct = [u for u in _admin_raw if u.startswith("ou_")]
+        self._admin_emails = [u for u in _admin_raw if "@" in u]
+        # 非邮箱、非 Open ID 的统一当作手机号（允许 +86 之类带前缀）
+        self._admin_mobiles = [
+            u for u in _admin_raw if "@" not in u and not u.startswith("ou_")
+        ]
+        # 供插件自身斜杠命令校验使用（原始混合列表）
+        self._admin_users = list(dict.fromkeys(_admin_raw))
         self._admin_users_resolved = {}
         self._switchs = config.get("switchs") or []
 
@@ -916,6 +940,13 @@ class LarkMessager(_PluginBase):
         else:
             self._client = None
             self._crypto = None
+
+        # 异步将管理员标识（邮箱/手机号/Open ID）解析为 Open ID，
+        # 并同步到 SYSTEMCONFIG.Notifications（名为 Lark 的配置），
+        # 使 AI 智能助手的渠道管理员判定能够识别。
+        # 注意：插件自身配置（plugin.LarkMessager）不会被智能助手读取，
+        # 必须写回到 Notifications 才会生效。
+        self._start_admin_sync()
 
     def get_state(self) -> bool:
         return self._enabled
@@ -996,7 +1027,9 @@ class LarkMessager(_PluginBase):
                                             "variant": "outlined",
                                             "hint": "Lark 开放平台应用的 App Secret（必填）",
                                             "persistentHint": True,
-                                            "type": "password",
+                                            "type": "{{ app_secret_visible ? 'text' : 'password' }}",
+                                            "append-inner-icon": "{{ app_secret_visible ? 'mdi-eye-off' : 'mdi-eye' }}",
+                                            "onClick:append-inner": "function(e){ model.app_secret_visible = !model.app_secret_visible }",
                                             "clearable": True,
                                             "density": "comfortable",
                                             "rules": [
@@ -1021,7 +1054,7 @@ class LarkMessager(_PluginBase):
                                     {
                                         "component": "VTextField",
                                         "props": {
-                                            "model": "user_id",
+                                            "model": "FEISHU_OPEN_ID",
                                             "label": "默认通知用户",
                                             "placeholder": "邮箱/手机号/ou_xxx",
                                             "variant": "outlined",
@@ -1107,11 +1140,11 @@ class LarkMessager(_PluginBase):
                                     {
                                         "component": "VTextField",
                                         "props": {
-                                            "model": "admin_users",
+                                            "model": "FEISHU_ADMINS",
                                             "label": "管理员用户",
-                                            "placeholder": "邮箱/手机号/ou_xxx，多个使用 , 分隔",
+                                            "placeholder": "邮箱 / 手机号 / ou_xxx，多个用 , 分隔",
                                             "variant": "outlined",
-                                            "hint": "允许执行命令的用户，填邮箱、手机号或 Open ID（ou_xxx），多个使用 , 分隔",
+                                            "hint": "允许执行命令与调用管理员工具的用户。可混填邮箱、手机号或 Lark Open ID（ou_xxx），任填其一即可，多个用 , 分隔。插件会自动识别类型并把邮箱/手机号解析为 Open ID，同步给 AI 智能助手（智能助手只认 Open ID）。使用邮箱/手机号需开通 contact:user.id:readonly 权限。",
                                             "persistentHint": True,
                                             "clearable": True,
                                             "density": "comfortable",
@@ -1161,11 +1194,12 @@ class LarkMessager(_PluginBase):
             "enabled": False,
             "app_id": "",
             "app_secret": "",
-            "user_id": "",
+            "app_secret_visible": False,
+            "FEISHU_OPEN_ID": "",
             "chat_id": "",
             "verification_token": "",
             "encrypt_key": "",
-            "admin_users": "",
+            "FEISHU_ADMINS": "",
             "switchs": [],
         }
 
@@ -2421,6 +2455,177 @@ class LarkMessager(_PluginBase):
         return JSONResponse(result)
 
     # ------------------------------------------------------------------ #
+    #  管理员标识解析与通知配置同步（供 AI 智能助手识别）
+    # ------------------------------------------------------------------ #
+    def _start_admin_sync(self):
+        """
+        在后台线程中解析管理员标识并同步到通知配置。
+        用线程而非同步解析，避免 init_plugin 在启动时因网络请求阻塞。
+        """
+        if not self._enabled:
+            return
+        if not self._client:
+            logger.debug("LarkMessager 未启用或 client 未就绪，跳过管理员同步")
+            return
+        worker = threading.Thread(target=self._admin_sync_worker, daemon=True)
+        worker.start()
+
+    def _admin_sync_worker(self):
+        """
+        后台工作线程：解析所有管理员标识为 Open ID，并写回
+        SYSTEMCONFIG.Notifications，供 AI 智能助手的渠道管理员判定读取。
+        解析失败时重试一次，避免瞬断导致管理员遗漏。
+        """
+        client = self._client
+        if not client:
+            return
+        try:
+            admin_openids, default_open_id = self._resolve_admin_identifiers()
+            # 解析失败时重试一次（瞬断保护）
+            if (self._admin_emails or self._admin_mobiles or self._admin_openids_direct) \
+                    and not admin_openids:
+                time.sleep(5)
+                if not self._client:
+                    return
+                admin_openids, default_open_id = self._resolve_admin_identifiers()
+            if default_open_id and default_open_id != self._user_id_raw:
+                self._user_id = default_open_id
+            self._sync_admin_to_notification_config(admin_openids, default_open_id)
+        except Exception as e:
+            logger.error("LarkMessager 管理员同步失败：%s", e)
+
+    def _resolve_single(self, identifier: str) -> str:
+        """
+        用 Lark 通讯录接口把单个邮箱/手机号解析为 Open ID。
+        已是 ou_xxx 的直接返回；解析失败返回空串。
+        """
+        if not self._client or not identifier:
+            return ""
+        identifier = identifier.strip()
+        if not identifier:
+            return ""
+        if identifier.startswith("ou_"):
+            return identifier
+        try:
+            if "@" in identifier:
+                result = self._client.batch_get_id(emails=[identifier])
+            else:
+                # 手机号（允许 +86 等前缀）；非邮箱、非 Open ID 的都按手机号尝试
+                result = self._client.batch_get_id(mobiles=[identifier])
+            return (result or {}).get(identifier, "") or ""
+        except Exception as e:
+            logger.warning(
+                "LarkMessager 解析管理员标识失败：%s, error=%s", identifier, e
+            )
+            return ""
+
+    def _resolve_admin_identifiers(self) -> Tuple[List[str], str]:
+        """
+        将管理员输入框（FEISHU_ADMINS，混填邮箱/手机号/Open ID）统一解析为
+        Open ID 列表，并一并解析默认通知用户（FEISHU_OPEN_ID，可能也是
+        邮箱/手机号）。返回 (管理员 Open ID 列表去重, 解析后的默认用户 Open ID 或 "")。
+        """
+        admin_ids: List[str] = []
+        # 1. 直接填的 Open ID
+        for uid in self._admin_openids_direct:
+            if uid.startswith("ou_"):
+                admin_ids.append(uid)
+            else:
+                rid = self._resolve_single(uid)
+                if rid:
+                    admin_ids.append(rid)
+        # 2. 邮箱
+        for email in self._admin_emails:
+            rid = self._resolve_single(email)
+            if rid:
+                admin_ids.append(rid)
+        # 3. 手机号
+        for mobile in self._admin_mobiles:
+            rid = self._resolve_single(mobile)
+            if rid:
+                admin_ids.append(rid)
+        # 4. 默认用户
+        default_open_id = ""
+        if self._user_id_raw:
+            if self._user_id_raw.startswith("ou_"):
+                default_open_id = self._user_id_raw
+            else:
+                default_open_id = self._resolve_single(self._user_id_raw) or self._user_id_raw
+        # 去重保序
+        return list(dict.fromkeys(admin_ids)), default_open_id
+
+    def _sync_admin_to_notification_config(self, admin_openids: List[str], default_open_id: str):
+        """
+        将解析后的管理员 Open ID 写回 SYSTEMCONFIG.Notifications 中名为配置源
+        （self._msg_source，即 "Lark"）的通知配置。
+
+        关键点：AI 智能助手的渠道管理员判定
+        （app/agent/tools/base.py 的 _has_channel_admin_permission）只读取
+        SYSTEMCONFIG.Notifications 里 NotificationConf.config["FEISHU_ADMINS"]，
+        并按发送者 Open ID 精确比对；它并不会解析邮箱，也不会读取插件
+        自身的 plugin.LarkMessager 配置。因此必须把 Open ID 写到
+        Notifications 才会生效。
+
+        为避免干扰通知子系统，该条配置使用非标准 type（larkmessager）
+        且 enabled=False——智能助手读取时不区分 type/enabled，照常命中；
+        而通知服务枚举（按 type+enabled 过滤）会忽略它。
+        """
+        try:
+            configs = self.systemconfig.get(SystemConfigKey.Notifications)
+            if not isinstance(configs, list):
+                configs = []
+            target = None
+            for c in configs:
+                if isinstance(c, dict) and c.get("name") == self._msg_source:
+                    target = c
+                    break
+            admin_str = ",".join(sorted(set(admin_openids))) if admin_openids else ""
+            # 没有任何管理员、也没有默认用户时，不创建空配置；
+            # 若已存在则清空 FEISHU_ADMINS，使智能助手停止识别。
+            if not admin_str and not default_open_id:
+                if target and isinstance(target.get("config"), dict) and (
+                    target["config"].get("FEISHU_ADMINS")
+                    or target["config"].get("FEISHU_OPEN_ID")
+                ):
+                    target["config"]["FEISHU_ADMINS"] = ""
+                    if "FEISHU_OPEN_ID" in target["config"]:
+                        target["config"]["FEISHU_OPEN_ID"] = ""
+                    self.systemconfig.set(SystemConfigKey.Notifications, configs)
+                    logger.info("LarkMessager 已清空管理员 Open ID 同步配置")
+                return
+            # 变更守卫：与现有值一致则不写回，避免触发 CONFIG_WATCH 重载造成死循环
+            if target:
+                cfg = target.get("config")
+                if not isinstance(cfg, dict):
+                    cfg = {}
+                    target["config"] = cfg
+                if cfg.get("FEISHU_ADMINS") == admin_str and (
+                    not default_open_id or cfg.get("FEISHU_OPEN_ID") == default_open_id
+                ):
+                    return
+                cfg["FEISHU_ADMINS"] = admin_str
+                if default_open_id:
+                    cfg["FEISHU_OPEN_ID"] = default_open_id
+            else:
+                target = {
+                    "name": self._msg_source,
+                    "type": "larkmessager",
+                    "config": {"FEISHU_ADMINS": admin_str},
+                    "switchs": [],
+                    "enabled": False,
+                }
+                if default_open_id:
+                    target["config"]["FEISHU_OPEN_ID"] = default_open_id
+                configs.append(target)
+            self.systemconfig.set(SystemConfigKey.Notifications, configs)
+            logger.info(
+                "LarkMessager 已同步 %d 个管理员 Open ID 到通知配置：%s",
+                len(admin_openids), admin_str,
+            )
+        except Exception as e:
+            logger.error("LarkMessager 写回通知配置失败：%s", e)
+
+    # ------------------------------------------------------------------ #
     #  管理员权限校验（邮箱/手机号解析版）
     # ------------------------------------------------------------------ #
     def _is_admin(self, open_id: str) -> bool:
@@ -2440,10 +2645,8 @@ class LarkMessager(_PluginBase):
             try:
                 if "@" in identifier:
                     result = self._client.batch_get_id(emails=[identifier])
-                elif identifier.isdigit():
-                    result = self._client.batch_get_id(mobiles=[identifier])
                 else:
-                    continue
+                    result = self._client.batch_get_id(mobiles=[identifier])
                 resolved_open_id = result.get(identifier, "")
                 self._admin_users_resolved[identifier] = resolved_open_id
                 if resolved_open_id == open_id:
