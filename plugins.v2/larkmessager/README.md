@@ -131,7 +131,7 @@ http(s)://<你的MoviePilot地址>/api/v1/plugin/LarkMessager/webhook
 | **默认通知群聊** | （可选）填群聊 Chat ID（`oc_xxx`），留空则不发送群通知 |
 | **Verification Token** | 第四步的 Verification Token |
 | **Encrypt Key** | 第四步的 Encrypt Key（强烈建议填写） |
-| **管理员用户** | （可选）允许执行命令和管理操作的用户，填邮箱、手机号或 Open ID（`ou_xxx`），多个用 `,` 分隔。使用邮箱/手机号需开通 `contact:user.id:readonly` 权限（见常见问题） |
+| **管理员用户** | （可选）允许执行命令和调用管理员工具的用户。可**混填邮箱、手机号或 Lark Open ID（`ou_xxx`）**，任填其一即可，多个用 `,` 分隔。**插件会自动识别类型并把邮箱/手机号解析为 Open ID，同步给 AI 智能助手**，因此智能助手也能识别为渠道管理员（不再需要手动查 Open ID）。使用邮箱/手机号需开通 `contact:user.id:readonly` 权限 |
 | **通知场景类型** | 选择哪些场景触发通知（留空=全部） |
 
 保存设置后，状态应显示为「已启用」。

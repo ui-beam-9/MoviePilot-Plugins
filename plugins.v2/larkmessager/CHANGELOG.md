@@ -1,5 +1,17 @@
 # LarkMessager 更新日志
 
+## v0.9.1 - 2026-07-10
+
+### 新增
+
+- **管理员支持邮箱 / 手机号（AI 智能助手自动识别）**：管理员配置合并为**单个输入框**，可混填邮箱、手机号或 Lark Open ID（`ou_xxx`），任填其一即可，多个用 `,` 分隔。插件在保存配置时通过 Lark 通讯录接口（`contact:user.id:readonly`）把邮箱 / 手机号解析为 Lark Open ID（`ou_xxx`），并写回 `SYSTEMCONFIG.Notifications` 中名为 `Lark` 的通知配置（`FEISHU_ADMINS`）。AI 智能助手的渠道管理员判定只读该配置、只比对 Open ID、且不解析邮箱，因此此前填邮箱 / 手机号对智能助手无效；现在由插件在后台完成解析与同步，智能助手即可识别管理员。
+
+### 说明
+
+- 使用邮箱 / 手机号管理员需在 Lark 开放平台为应用开通 `contact:user.id:readonly` 权限作用域并重新发布版本。
+- 解析在后台线程完成（不阻塞插件启动）；解析结果写入 `Notifications` 时带变更守卫，避免触发配置重载死循环。
+- **App Secret 显示 / 隐藏按钮**：配置页 App Secret 字段新增眼睛图标按钮，默认隐藏（密文），点击切换明文显示；通过表单渲染器的 `{{ }}` 表达式绑定 `type` / `append-inner-icon`，并用 `onClick:append-inner` 切换模型字段 `app_secret_visible` 实现。
+
 ## v0.9.0 - 2026-07-09
 
 ### 修复
